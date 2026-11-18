@@ -461,7 +461,13 @@ class OBJECT_PT_RbxAnimations(bpy.types.Panel):
             col.prop(settings, "rbx_full_range_bake", text="Full Range Bake")
         col.separator()
         col.operator("object.rbxanims_bake", text="Bake (Clipboard)", icon="EXPORT")
-        col.operator("object.rbxanims_bake_file", text="Bake to File", icon="FILE")\n\n        unity_box = animation_box.box()\n        unity_box.label(text="Unity Export", icon="EXPORT")\n        unity_box.label(text="Exports the target armature animation as an FBX.")\n        unity_box.operator(\n            "object.rbxanims_export_unity_fbx",\n            text="Export for Unity (.fbx)",\n            icon="EXPORT",\n        )
+        col.operator("object.rbxanims_bake_file", text="Bake to File", icon="FILE")
+
+        unity_box = animation_box.box()\n        unity_box.label(text="Unity Export", icon="EXPORT")\n        unity_box.label(text="Exports the target armature animation as an FBX.")\n        unity_box.operator(
+            "object.rbxanims_export_unity_fbx",
+            text="Export for Unity (.fbx)",
+            icon="EXPORT",
+        )
 
         # # # Add the force deform serialization checkbox for testing
         # dev_box = inner_box.box()
