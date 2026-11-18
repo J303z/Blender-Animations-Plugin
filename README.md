@@ -25,15 +25,15 @@ The project preserves the original Roblox animation workflow and adds a separate
 1. Open the **Animation Bridge** tab in the 3D Viewport sidebar (`N`).
 2. Set the add-on's **Target** armature to the skeleton whose animation you want to export.
 3. Set the scene frame range to the animation's intended start and end.
-4. Make sure the intended action is active on the target armature. The exporter uses the active action and does not export every action or NLA strip.
+4. Make sure the animation plays correctly in Blender and set the scene frame range to cover it. For an R6IK-style setup, the control armature (for example, `__PrimaryArmature`) can carry the action while the export target (for example, `InternalArmature`) follows through constraints. Keep both rigs in the scene; choose only the seven-bone export armature as **Target**.
 5. In the **Unity Export** section, choose **Export for Unity (.fbx)** and save the file.
 6. In Unity, import the FBX and configure its Rig as **Generic**. Use the same bone hierarchy and bone names as the character model that will play the clip.
 
 ### Important notes
 
 - This first Unity exporter is intentionally animation-only: it exports the armature, not the character mesh.
-- The target armature must evaluate correctly in Blender before export. Driver rigs and constraint targets can remain in the scene; only the target armature is selected for FBX export.
-- The FBX exporter evaluates the target armature during export. This avoids destructive manual constraint clearing or baking on the original rig.
+- The target armature must evaluate correctly in Blender before export. Driver rigs and constraint targets must remain available in the scene so Blender can evaluate the dependency graph; only the target armature is selected for FBX export.
+- The exporter deliberately uses Blender's global scene animation bake (NLA-strip export off and all-actions export off). Blender samples the selected armature's evaluated pose over the scene frame range, so a separate control rig can drive it through constraints without being included in the FBX. This avoids destructive manual constraint clearing or baking on the original rig.
 - The initial implementation is designed around Blender's built-in FBX exporter. Unity import settings, root motion, bone orientation, and rest-pose compatibility still need validation against real rigs.
 - For the best result, the Unity character and animation FBXs should share a compatible skeleton hierarchy, root bone, rest pose, and bone names.
 - If the exported animation looks exaggerated or offset in Unity, check the armature's rest pose, object transforms, FBX axis settings, and Unity's Generic rig mapping before changing animation curves.
@@ -53,7 +53,7 @@ Contributions and reproducible test files are welcome. When reporting an export 
 - Blender version
 - Unity version
 - Rig hierarchy and bone names
-- Scene frame range and active action
+- Scene frame range and which rig carries the active action
 - Whether the target armature is driven by constraints, drivers, or an IK control rig
 - A short description of the difference between Blender playback and Unity playback
 
