@@ -1,10 +1,10 @@
-"""
-Unity FBX export operators.
+"""Unity FBX export operators.
 
-The exporter delegates animation sampling to Blender's FBX exporter. This lets
-Blender evaluate the selected armature's dependency-graph pose (including
-constraints driven by other objects) without destructively baking or clearing
-constraints on the user's source rig.
+The exporter uses Blender's FBX global-scene animation bake. Blender evaluates
+the dependency graph at each sampled frame, so a selected export armature can
+receive animation from constraints driven by a separate control rig. Only the
+export armature is written to the FBX; the control rig remains in the scene
+for evaluation and is not included in the exported hierarchy.
 """
 
 import bpy
@@ -14,13 +14,13 @@ from bpy_extras.io_utils import ExportHelper
 
 
 class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
-    """Export the target armature and its evaluated animation as an FBX for Unity"""
+    """Export the target armature's evaluated animation as a Unity FBX"""
 
     bl_idname = "object.rbxanims_export_unity_fbx"
     bl_label = "Export for Unity (.fbx)"
     bl_description = (
         "Export the target armature's evaluated animation to an animation-only "
-        "FBX. The source rig and its constraints are left unchanged."
+        "FBX. Constraint drivers remain in the scene but are not exported."
     )
     bl_options = {"REGISTER"}
 
@@ -33,13 +33,15 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
-        settings = getattr(context.scene, "rbx_anim_settings", None)
+        scene = getattr(context, "scene", None)
+        settings = getattr(scene, "rbx_anim_settings", None) if scene else None
         armature_name = getattr(settings, "rbx_anim_armature", "") if settings else ""
         armature = bpy.data.objects.get(armature_name) if armature_name else None
         return armature is not None and armature.type == "ARMATURE"
 
     def execute(self, context):
-        settings = getattr(context.scene, "rbx_anim_settings", None)
+        scene = context.scene
+        settings = getattr(scene, "rbx_anim_settings", None)
         armature_name = getattr(settings, "rbx_anim_armature", "") if settings else ""
         armature = bpy.data.objects.get(armature_name) if armature_name else None
 
@@ -52,17 +54,16 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             return {"CANCELLED"}
 
         view_layer = context.view_layer
-        scene = context.scene
         previous_active = view_layer.objects.active
         previous_selection = list(context.selected_objects)
-        previous_mode = armature.mode
+        previous_mode = previous_active.mode if previous_active else "OBJECT"
         previous_frame = scene.frame_current
         previous_subframe = scene.frame_subframe
 
         try:
-            # FBX export requires Object Mode. Do not apply transforms, clear
-            # constraints, alter actions, or change the source rig's hierarchy.
-            if context.object and context.object.mode != "OBJECT":
+            # FBX export requires Object Mode. Exit the mode of the currently
+            # active object, not necessarily the selected export armature.
+            if previous_active and previous_active.mode != "OBJECT":
                 bpy.ops.object.mode_set(mode="OBJECT")
 
             bpy.ops.object.select_all(action="DESELECT")
@@ -78,6 +79,9 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
                 use_space_transform=True,
                 bake_anim=True,
                 bake_anim_use_all_bones=True,
+                # False/False requests Blender's global scene animation stack.
+                # This is important: the target pose is sampled over the scene
+                # range even when its motion comes from another rig's constraints.
                 bake_anim_use_nla_strips=False,
                 bake_anim_use_all_actions=False,
                 bake_anim_force_startend_keying=True,
@@ -92,27 +96,30 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             self.report({"ERROR"}, f"Unity FBX export failed: {exc}")
             return {"CANCELLED"}
         finally:
-            # Restore the scene's selection, active object, frame and mode.
+            # Restore frame, selection, active object, and its original mode.
+            # Do not leave the user's source scene in a different interaction mode.
             try:
-                if context.object and context.object.mode != "OBJECT":
+                scene.frame_set(previous_frame, subframe=previous_subframe)
+
+                active_now = view_layer.objects.active
+                if active_now and active_now.mode != "OBJECT":
                     bpy.ops.object.mode_set(mode="OBJECT")
+
                 bpy.ops.object.select_all(action="DESELECT")
                 for obj in previous_selection:
-                    if obj.name in bpy.data.objects:
+                    if view_layer.objects.get(obj.name) is not None:
                         obj.select_set(True)
-                if previous_active and previous_active.name in bpy.data.objects:
+
+                if (
+                    previous_active
+                    and view_layer.objects.get(previous_active.name) is not None
+                ):
+                    previous_active.select_set(True)
                     view_layer.objects.active = previous_active
-                scene.frame_set(previous_frame, subframe=previous_subframe)
-                if previous_mode != "OBJECT" and armature.name in bpy.data.objects:
-                    view_layer.objects.active = armature
-                    armature.select_set(True)
-                    bpy.ops.object.mode_set(mode=previous_mode)
-                    if previous_active and previous_active.name in bpy.data.objects:
-                        view_layer.objects.active = previous_active
-            except Exception:
-                # Export success/failure should not be masked by a UI-state
-                # restoration issue; Blender will still retain the source data.
-                pass
+                    if previous_mode != "OBJECT":
+                        bpy.ops.object.mode_set(mode=previous_mode)
+            except Exception as restore_exc:
+                print(f"Unity FBX export: could not fully restore Blender context: {restore_exc}")
 
         self.report(
             {"INFO"},
