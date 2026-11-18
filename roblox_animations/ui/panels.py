@@ -463,7 +463,10 @@ class OBJECT_PT_RbxAnimations(bpy.types.Panel):
         col.operator("object.rbxanims_bake", text="Bake (Clipboard)", icon="EXPORT")
         col.operator("object.rbxanims_bake_file", text="Bake to File", icon="FILE")
 
-        unity_box = animation_box.box()\n        unity_box.label(text="Unity Export", icon="EXPORT")\n        unity_box.label(text="Exports the target armature animation as an FBX.")\n        unity_box.operator(
+        unity_box = animation_box.box()
+        unity_box.label(text="Unity Export", icon="EXPORT")
+        unity_box.label(text="Exports the target armature animation as an FBX.")
+        unity_box.operator(
             "object.rbxanims_export_unity_fbx",
             text="Export for Unity (.fbx)",
             icon="EXPORT",
