@@ -54,6 +54,24 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             return {"CANCELLED"}
 
         view_layer = context.view_layer
+        if view_layer.objects.get(armature.name) is None:
+            self.report(
+                {"ERROR"},
+                "The target armature is not in the active view layer. Move it into "
+                "an included collection before exporting.",
+            )
+            return {"CANCELLED"}
+
+        try:
+            bpy.ops.export_scene.fbx.get_rna_type()
+        except (AttributeError, RuntimeError):
+            self.report(
+                {"ERROR"},
+                "Blender's FBX exporter is unavailable. Enable the FBX extension "
+                "in Preferences, then try again.",
+            )
+            return {"CANCELLED"}
+
         previous_active = view_layer.objects.active
         previous_selection = list(context.selected_objects)
         previous_mode = previous_active.mode if previous_active else "OBJECT"
