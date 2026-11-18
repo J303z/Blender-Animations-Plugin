@@ -46,9 +46,9 @@ ADDON_VERSION_TEXT = _load_addon_version_text()
 
 
 class OBJECT_PT_RbxAnimations(bpy.types.Panel):
-    bl_label = "RBXMonkey"
+    bl_label = "Animation Bridge"
     bl_idname = "OBJECT_PT_RbxAnimations"
-    bl_category = "RBXMonkey"  # Create a dedicated tab
+    bl_category = "Animation Bridge"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
 
