@@ -98,7 +98,7 @@ bl_info = {
     "name": "Blender Animation Bridge",
     "description": "Blender animation tools for Roblox workflows and Unity FBX export.",
     "author": "Cautioned",
-    "version": (3, 1, 3),
+    "version": (3, 2, 0),
     "blender": (2, 80, 0),
     "location": "View3D > Toolbar",
 }
@@ -283,7 +283,7 @@ def register():
         bpy.app.handlers.load_post.append(_on_blend_file_loaded)
 
     except Exception as e:
-        print(f"Error registering Roblox Animations addon: {e}")
+        print(f"Error registering Blender Animation Bridge addon: {e}")
         import traceback
 
         traceback.print_exc()
@@ -356,7 +356,7 @@ def unregister():
             pass
 
     except Exception as e:
-        print(f"Error unregistering Roblox Animations addon: {e}")
+        print(f"Error unregistering Blender Animation Bridge addon: {e}")
         import traceback
 
         traceback.print_exc()
