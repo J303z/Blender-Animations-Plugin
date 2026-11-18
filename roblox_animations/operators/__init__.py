@@ -32,7 +32,7 @@ from .rig_ops import (
     OBJECT_OT_WorldSpaceUnparent,
     OBJECT_OT_WorldSpaceReparent,
 )
-from .animation_ops import (
+from .unity_export_ops import OBJECT_OT_ExportUnityFBX\nfrom .animation_ops import (
     OBJECT_OT_ApplyTransform,
     OBJECT_OT_MapKeyframes,
     OBJECT_OT_Bake,
@@ -91,7 +91,7 @@ __all__ = [
     "OBJECT_OT_ApplyTransform",
     "OBJECT_OT_MapKeyframes",
     "OBJECT_OT_Bake",
-    "OBJECT_OT_Bake_File",
+    "OBJECT_OT_Bake_File",\n    "OBJECT_OT_ExportUnityFBX",
     "OBJECT_OT_ValidateMotionPaths",
     "OBJECT_OT_ClearMotionPathValidation",
     # Constraint operators
