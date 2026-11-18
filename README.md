@@ -1,74 +1,64 @@
-# RBXMonkey - Blender Animations Plugin for Roblox
+# Blender Animation Bridge
 
-A powerful Roblox Studio plugin that enables seamless animation workflow between Blender and Roblox, featuring real-time sync, advanced rigging tools, and comprehensive animation management.
+A Blender add-on for working with character rigs and animation across **Roblox Studio** and **Unity**.
+
+The project preserves the original Roblox animation workflow and adds a separate Unity FBX export path. The add-on package and internal Python module retain their existing identifiers for compatibility with existing installations and user files.
+
+## Features
+
+### Roblox workflow
+- Import Roblox rigs and places.
+- Work with IK/FK rigging and animation tools.
+- Transfer animations between Blender and Roblox Studio through the existing sync workflow.
+- Bake animation data to the existing Roblox clipboard and `.rbxanim` formats.
+- Import FBX animation files for Roblox rigs.
+
+### Unity workflow
+- Export the target armature as an animation-only FBX.
+- Let Blender's FBX exporter sample the evaluated armature pose, including dependency-graph evaluation of constraints.
+- Export all armature bones, including non-deform bones.
+- Keep the source rig, constraints, and actions unchanged.
+- Use one-frame sampling with animation simplification disabled to avoid intentionally dropping motion.
+
+## Unity FBX export
+
+1. Open the **Animation Bridge** tab in the 3D Viewport sidebar (`N`).
+2. Set the add-on's **Target** armature to the skeleton whose animation you want to export.
+3. Set the scene frame range to the animation's intended start and end.
+4. Make sure the intended action is active on the target armature. The exporter uses the active action and does not export every action or NLA strip.
+5. In the **Unity Export** section, choose **Export for Unity (.fbx)** and save the file.
+6. In Unity, import the FBX and configure its Rig as **Generic**. Use the same bone hierarchy and bone names as the character model that will play the clip.
+
+### Important notes
+
+- This first Unity exporter is intentionally animation-only: it exports the armature, not the character mesh.
+- The target armature must evaluate correctly in Blender before export. Driver rigs and constraint targets can remain in the scene; only the target armature is selected for FBX export.
+- The FBX exporter evaluates the target armature during export. This avoids destructive manual constraint clearing or baking on the original rig.
+- The initial implementation is designed around Blender's built-in FBX exporter. Unity import settings, root motion, bone orientation, and rest-pose compatibility still need validation against real rigs.
+- For the best result, the Unity character and animation FBXs should share a compatible skeleton hierarchy, root bone, rest pose, and bone names.
+- If the exported animation looks exaggerated or offset in Unity, check the armature's rest pose, object transforms, FBX axis settings, and Unity's Generic rig mapping before changing animation curves.
 
 ## Installation
 
-1. Download the latest release from [Blender Extensions](https://extensions.blender.org/approval-queue/roblox-animations-importer-exporter/) or [Releases](https://github.com/cautioned/blender-animations-plugin/releases) page
-2. Install the plugin on Roblox Studio: [Get Here](https://create.roblox.com/store/asset/16708835782/Blender-Animations-ultimate-edition)
-3. Set up the Blender addon (see Blender Setup below)
+1. Download the add-on ZIP from the repository's **Releases** page, or package the `roblox_animations` directory as a Blender add-on.
+2. In Blender, open **Edit → Preferences → Get Extensions / Add-ons** and install the ZIP.
+3. Enable **Blender Animation Bridge**.
+4. Open the 3D Viewport sidebar with `N` and select the **Animation Bridge** tab.
 
-## Blender Setup
+## Development
 
-1. Install the Blender addon in blender's preferences (download zip) [Blender Extensions](https://extensions.blender.org/approval-queue/roblox-animations-importer-exporter/) or [Releases](https://github.com/cautioned/blender-animations-plugin/releases) page
-2. Install the Roblox addon: https://create.roblox.com/store/asset/16708835782/
-2. Enable the addon in Blender's preferences
-3. The addon is found in the 3D view toolbar press 'N' then click the 'RBXMonkey' tab
-4. Start the Blender server on port 31337 (default), or your port of choice. 
-5. Connect to the server using the Blender Sync tab on the Roblox Plugin.
+The Unity exporter lives in `roblox_animations/operators/unity_export_ops.py`. It is registered alongside the existing operators and exposed in the Animation panel. The Roblox serialization/export path remains separate.
 
-## Usage
-
-### Basic Workflow
-
-1. **Connect to Blender**: Use the "Blender Sync" tab
-2. **Select a Rig**: Choose your armature in the Blender Sync tab
-3. **Import Animation**: Click "Import from Blender" to bring animations into Roblox
-4. **Play & Edit**: Use the playback controls to preview and edit animations
-5. **Export Back**: Send animations back to Blender for further editing
-
-### Features
-
-- **Live Sync**: Enable live sync for real-time updates between Blender and Roblox
-- **Bone Sync**: Create bones in Blender and sync them in studio as motor6ds.
-- **Bone Toggles**: Use the Tools tab to enable/disable specific bones
-- **Animation Scaling**: Adjust scale factors in the Tools tab
-- **Camera Controls**: Attach a camera to a part, such as the head. Useful for viewport animations.
-- **Easing Transfer**: Easing transfers losslessly between Roblox and Blender where possible.
-
-## Configuration
-
-### Plugin Settings
-- **Auto-connect**: Automatically connect to Blender on startup
-- **Live Sync**: Enable real-time synchronization
-- **File Export**: Allow exporting animations to files
-
-## Troubleshooting
-
-### Common Issues
-
-**Connection Failed**
-- Ensure Blender server is running on the correct port
-- Roblox plugin must have network permissions enabled.
-- Check firewall settings
-- Verify the Blender addon is properly installed
-
-
-## Contributing
-
-1. Test for stability and submit a pull request.
+Contributions and reproducible test files are welcome. When reporting an export issue, include:
+- Blender version
+- Unity version
+- Rig hierarchy and bone names
+- Scene frame range and active action
+- Whether the target armature is driven by constraints, drivers, or an IK control rig
+- A short description of the difference between Blender playback and Unity playback
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+This project retains the upstream GNU General Public License, version 3 or later. See [LICENSE](LICENSE) for the full terms.
 
-**Important**: This software is forever free and open source. Commercial use is permitted under the GPL-3.0 license, but any derivative works must also be open source and free. This prevents proprietary monetization while allowing donations and community contributions. DO NOT reupload this to the Roblox Creator Store as a paid plugin (free with donations is allowed however). If you disagree with this practice, you may program your own version based off the original addon by Den_S https://devforum.roblox.com/t/blender-rig-exporteranimation-importer/34729, which has no such copyleft restrictions.
-
-## Support
-
-- **Issues**: Report bugs and request features on [GitHub Issues](https://github.com/cautioned/blender-animations-plugin/issues)
-- **Discord**: Join the discord server for help: [JOIN HERE](https://discord.gg/qNB3EhxYYp)
-
----
-
-**Made with ❤️ for the Roblox and Blender communities**
+The original Roblox functionality and upstream project history remain credited to their respective contributors.
