@@ -61,6 +61,13 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
                 "an included collection before exporting.",
             )
             return {"CANCELLED"}
+        if not armature.visible_get(view_layer=view_layer):
+            self.report(
+                {"ERROR"},
+                "The target armature is hidden. Make it visible in the active view layer "
+                "before exporting.",
+            )
+            return {"CANCELLED"}
 
         try:
             bpy.ops.export_scene.fbx.get_rna_type()
@@ -88,7 +95,7 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             armature.select_set(True)
             view_layer.objects.active = armature
 
-            bpy.ops.export_scene.fbx(
+            export_result = bpy.ops.export_scene.fbx(
                 filepath=self.filepath,
                 check_existing=False,
                 use_selection=True,
@@ -110,6 +117,9 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
                 axis_forward="-Z",
                 axis_up="Y",
             )
+            if "FINISHED" not in export_result:
+                self.report({"ERROR"}, "Blender's FBX exporter did not complete the export.")
+                return {"CANCELLED"}
         except Exception as exc:
             self.report({"ERROR"}, f"Unity FBX export failed: {exc}")
             return {"CANCELLED"}
