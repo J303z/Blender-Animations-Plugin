@@ -7,11 +7,45 @@ export armature is written to the FBX; the control rig remains in the scene
 for evaluation and is not included in the exported hierarchy.
 """
 
+import os
 import bpy
 from bpy.types import Operator
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ExportHelper
 
+
+_R6_BONE_NAMES = {
+    "HumanoidRootPart", "Torso", "Right Arm", "Left Arm",
+    "Right Leg", "Left Leg", "Head",
+}
+
+def _sample_evaluated_motion(context, armature, scene):
+    """Check whether the evaluated target pose changes across the scene range."""
+    start, end = int(scene.frame_start), int(scene.frame_end)
+    if end <= start:
+        return False, "The scene frame range contains only one frame."
+    frames = sorted({start, round(start + (end - start) * 0.25),
+                     round(start + (end - start) * 0.5),
+                     round(start + (end - start) * 0.75), end})
+    depsgraph = context.evaluated_depsgraph_get()
+    reference = None
+    largest_delta = 0.0
+    for frame in frames:
+        scene.frame_set(frame)
+        context.view_layer.update()
+        evaluated = armature.evaluated_get(depsgraph)
+        current = {pb.name: pb.matrix.copy() for pb in evaluated.pose.bones}
+        if reference is None:
+            reference = current
+            continue
+        for name, matrix in current.items():
+            original = reference.get(name)
+            if original is None:
+                continue
+            delta = max(abs(matrix[r][col] - original[r][col])
+                        for r in range(4) for col in range(4))
+            largest_delta = max(largest_delta, delta)
+    return largest_delta > 1e-5, f'Maximum sampled pose-matrix difference: {largest_delta:.6g}'
 
 class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
     """Export the target armature's evaluated animation as a Unity FBX"""
@@ -53,6 +87,21 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             self.report({"ERROR"}, "Choose an FBX output path.")
             return {"CANCELLED"}
 
+        if scene.frame_end <= scene.frame_start:
+            self.report({"ERROR"}, "The scene frame range must contain at least two frames.")
+            return {"CANCELLED"}
+        if not armature.data.bones:
+            self.report({"ERROR"}, "The target armature has no bones.")
+            return {"CANCELLED"}
+        actual_bones = {bone.name for bone in armature.data.bones}
+        if actual_bones != _R6_BONE_NAMES:
+            missing = sorted(_R6_BONE_NAMES - actual_bones)
+            extra = sorted(actual_bones - _R6_BONE_NAMES)
+            details = []
+            if missing: details.append("missing: " + ", ".join(missing))
+            if extra: details.append("additional: " + ", ".join(extra))
+            self.report({"WARNING"}, "Target differs from the expected seven-bone R6 skeleton (" + "; ".join(details) + "). Export will continue.")
+
         view_layer = context.view_layer
         if view_layer.objects.get(armature.name) is None:
             self.report(
@@ -86,6 +135,14 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
         previous_subframe = scene.frame_subframe
 
         try:
+            # Check that the constrained export armature actually receives motion.
+            has_motion, motion_details = _sample_evaluated_motion(context, armature, scene)
+            if not has_motion:
+                self.report({"WARNING"}, "No evaluated pose change detected across the scene range. " + motion_details + ". Check constraints and frame range.")
+            else:
+                print("Unity FBX preflight: evaluated target motion detected. " + motion_details)
+            scene.frame_set(previous_frame, subframe=previous_subframe)
+
             # FBX export requires Object Mode. Exit the mode of the currently
             # active object, not necessarily the selected export armature.
             if previous_active and previous_active.mode != "OBJECT":
@@ -119,6 +176,13 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             )
             if "FINISHED" not in export_result:
                 self.report({"ERROR"}, "Blender's FBX exporter did not complete the export.")
+                return {"CANCELLED"}
+            output_path = bpy.path.abspath(self.filepath)
+            if not os.path.isfile(output_path):
+                self.report({"ERROR"}, "Blender reported success, but the FBX file was not found.")
+                return {"CANCELLED"}
+            if os.path.getsize(output_path) <= 0:
+                self.report({"ERROR"}, "The exported FBX file is empty.")
                 return {"CANCELLED"}
         except Exception as exc:
             self.report({"ERROR"}, f"Unity FBX export failed: {exc}")
