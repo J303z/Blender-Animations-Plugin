@@ -95,8 +95,8 @@ class RbxAnimationsAutoDetectContent(bpy.types.Operator):
 
 # Define bl_info directly to avoid import issues
 bl_info = {
-    "name": "Roblox Animations Importer/Exporter",
-    "description": "Plugin for importing roblox rigs and exporting animations.",
+    "name": "Blender Animation Bridge",
+    "description": "Blender animation tools for Roblox workflows and Unity FBX export.",
     "author": "Cautioned",
     "version": (3, 1, 3),
     "blender": (2, 80, 0),
@@ -159,7 +159,7 @@ _classes = [
     _resolve_operator_class("OBJECT_OT_ApplyTransform"),
     _resolve_operator_class("OBJECT_OT_MapKeyframes"),
     _resolve_operator_class("OBJECT_OT_Bake"),
-    _resolve_operator_class("OBJECT_OT_Bake_File"),
+    _resolve_operator_class("OBJECT_OT_Bake_File"),\n    _resolve_operator_class("OBJECT_OT_ExportUnityFBX"),
     _resolve_operator_class("OBJECT_OT_ValidateMotionPaths"),
     _resolve_operator_class("OBJECT_OT_ClearMotionPathValidation"),
     # Constraint operators
