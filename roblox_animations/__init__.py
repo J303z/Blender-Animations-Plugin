@@ -159,7 +159,8 @@ _classes = [
     _resolve_operator_class("OBJECT_OT_ApplyTransform"),
     _resolve_operator_class("OBJECT_OT_MapKeyframes"),
     _resolve_operator_class("OBJECT_OT_Bake"),
-    _resolve_operator_class("OBJECT_OT_Bake_File"),\n    _resolve_operator_class("OBJECT_OT_ExportUnityFBX"),
+    _resolve_operator_class("OBJECT_OT_Bake_File"),
+    _resolve_operator_class("OBJECT_OT_ExportUnityFBX"),
     _resolve_operator_class("OBJECT_OT_ValidateMotionPaths"),
     _resolve_operator_class("OBJECT_OT_ClearMotionPathValidation"),
     # Constraint operators
