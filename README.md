@@ -33,6 +33,8 @@ The project preserves the original Roblox animation workflow and adds a separate
 ### Important notes
 
 - This first Unity exporter is intentionally animation-only: it exports the armature, not the character mesh.
+- The supported custom R6 hierarchy is: `HumanoidRootPart` at the root; `Torso` parented to it; `Head` and both arms parented to `Torso`; and both legs parented directly to `HumanoidRootPart`. Keeping the legs rooted independently lets the torso bend without carrying the legs with it.
+- Separate rigid body-part meshes may be bone-parented to their matching bones; vertex groups and Armature modifiers are not required for that setup. This animation-only exporter writes the armature and animation, not those model meshes.
 - The target armature must evaluate correctly in Blender before export. Driver rigs and constraint targets must remain available in the scene so Blender can evaluate the dependency graph; only the target armature is selected for FBX export.
 - The target armature may live in a hidden internal collection. During export, the add-on temporarily reveals only the target's collection path and object in the active view layer, then restores their original viewport visibility even if export fails. Render visibility is left unchanged.
 - The exporter deliberately uses Blender's global scene animation bake (NLA-strip export off and all-actions export off). Blender samples the selected armature's evaluated pose over the scene frame range, so a separate control rig can drive it through constraints without being included in the FBX. This avoids destructive manual constraint clearing or baking on the original rig.
