@@ -196,15 +196,20 @@ class RobloxAnimationSettings(PropertyGroup):
     rbx_anim_armature: EnumProperty(
         items=armature_items,
         name="Armature",
-        description="Select an armature",
+        description=(
+            "Select the evaluated seven-bone R6 armature whose pose should be "
+            "exported. For an R6IK rig, this is normally InternalArmature, "
+            "not the 40-bone __PrimaryArmature control rig."
+        ),
     )
 
     rbx_unity_template_armature: EnumProperty(
         items=armature_items,
         name="Unity Skeleton Template",
         description=(
-            "Choose the custom player armature whose rest pose and bone axes "
-            "should be used for the exported Unity animation skeleton."
+            "Optional. Choose a separate seven-bone R6 armature to retarget onto. "
+            "Leave unset to use the Target armature itself and preserve its rest pose. "
+            "The template must use the same seven bone names and hierarchy."
         ),
     )
 
