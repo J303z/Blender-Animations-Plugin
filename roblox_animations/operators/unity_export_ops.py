@@ -20,6 +20,48 @@ _R6_BONE_NAMES = {
     "Right Leg", "Left Leg", "Head",
 }
 
+_R6_EXPECTED_PARENTS = {
+    "HumanoidRootPart": None,
+    "Torso": "HumanoidRootPart",
+    "Head": "Torso",
+    "Left Arm": "Torso",
+    "Right Arm": "Torso",
+    "Left Leg": "Torso",
+    "Right Leg": "Torso",
+}
+
+
+def _validate_r6_armature(armature, label):
+    """Validate the exact seven-bone R6 skeleton before attempting a bake."""
+    if armature is None or armature.type != "ARMATURE":
+        raise RuntimeError(f"{label} is not a valid armature.")
+
+    actual = {bone.name for bone in armature.data.bones}
+    if actual != _R6_BONE_NAMES:
+        missing = sorted(_R6_BONE_NAMES - actual)
+        extra = sorted(actual - _R6_BONE_NAMES)
+        details = []
+        if missing:
+            details.append("missing: " + ", ".join(missing))
+        if extra:
+            details.append("unexpected: " + ", ".join(extra))
+        raise RuntimeError(
+            f"{label} must contain exactly the seven R6 bones "
+            f"({'; '.join(details)}). Select the seven-bone InternalArmature, "
+            "not the R6IK control armature."
+        )
+
+    for bone_name, expected_parent in _R6_EXPECTED_PARENTS.items():
+        bone = armature.data.bones[bone_name]
+        actual_parent = bone.parent.name if bone.parent else None
+        if actual_parent != expected_parent:
+            expected_text = expected_parent if expected_parent else "no parent"
+            actual_text = actual_parent if actual_parent else "no parent"
+            raise RuntimeError(
+                f"{label} hierarchy mismatch for '{bone_name}': "
+                f"expected {expected_text}, got {actual_text}."
+            )
+
 
 def _find_layer_collection_path(layer_collection, target_collection):
     """Return the active view-layer path to a collection, or None."""
@@ -180,44 +222,12 @@ def _build_unity_export_armature(context, source_armature, template_armature):
     template's bone roll, local axes, rest orientation, and hierarchy.
     """
     scene = context.scene
-    expected = {
-        "HumanoidRootPart", "Torso", "Head", "Left Arm",
-        "Right Arm", "Left Leg", "Right Leg",
-    }
-
-    source_names = {bone.name for bone in source_armature.data.bones}
-    template_names = {bone.name for bone in template_armature.data.bones}
-    if source_names != expected:
-        raise RuntimeError(
-            "Source armature must contain exactly the seven expected R6 bones."
-        )
-    if template_names != expected:
-        raise RuntimeError(
-            "Unity skeleton template must contain exactly: HumanoidRootPart, "
-            "Torso, Head, Left Arm, Right Arm, Left Leg, and Right Leg."
-        )
-
-    # Preserve the classic R6 hierarchy shown by the user's InternalArmature:
-    # HRP -> Torso -> Head, arms, and legs. Both rigs must use this hierarchy
-    # so each bone's rest-relative animation has an unambiguous parent space.
-    expected_parents = {
-        "HumanoidRootPart": None,
-        "Torso": "HumanoidRootPart",
-        "Head": "Torso",
-        "Left Arm": "Torso",
-        "Right Arm": "Torso",
-        "Left Leg": "Torso",
-        "Right Leg": "Torso",
-    }
-    for rig_label, rig in (("Source", source_armature), ("Unity template", template_armature)):
-        for bone_name, parent_name in expected_parents.items():
-            actual_parent = rig.data.bones[bone_name].parent
-            actual_parent_name = actual_parent.name if actual_parent else None
-            if actual_parent_name != parent_name:
-                raise RuntimeError(
-                    f"{rig_label} hierarchy mismatch for '{bone_name}': "
-                    f"expected parent '{parent_name}', got '{actual_parent_name}'."
-                )
+    # The source is the evaluated seven-bone deform/export rig. In an
+    # R6IK scene this is normally InternalArmature, driven by __PrimaryArmature.
+    # The template may be the same object; the exporter always bakes to a
+    # temporary duplicate, so the user's rig is never modified.
+    _validate_r6_armature(source_armature, "Source armature")
+    _validate_r6_armature(template_armature, "Unity skeleton template")
 
     scene = context.scene
     source_frame = scene.frame_current
@@ -390,8 +400,10 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
         template_name = (
             getattr(settings, "rbx_unity_template_armature", "") if settings else ""
         )
+        # A separate rest-pose template is optional. If none is selected,
+        # preserve the target rig's own rest pose by using it as the template.
         template_armature = (
-            bpy.data.objects.get(template_name) if template_name else None
+            bpy.data.objects.get(template_name) if template_name else armature
         )
 
         if armature is None or armature.type != "ARMATURE":
@@ -416,14 +428,12 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
         if not armature.data.bones:
             self.report({"ERROR"}, "The target armature has no bones.")
             return {"CANCELLED"}
-        actual_bones = {bone.name for bone in armature.data.bones}
-        if actual_bones != _R6_BONE_NAMES:
-            missing = sorted(_R6_BONE_NAMES - actual_bones)
-            extra = sorted(actual_bones - _R6_BONE_NAMES)
-            details = []
-            if missing: details.append("missing: " + ", ".join(missing))
-            if extra: details.append("additional: " + ", ".join(extra))
-            self.report({"WARNING"}, "Target differs from the expected seven-bone R6 skeleton (" + "; ".join(details) + "). Export will continue.")
+        try:
+            _validate_r6_armature(armature, "Target armature")
+            _validate_r6_armature(template_armature, "Unity skeleton template")
+        except RuntimeError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
 
         view_layer = context.view_layer
         if view_layer.objects.get(armature.name) is None:
