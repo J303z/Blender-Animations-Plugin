@@ -169,33 +169,59 @@ def _sample_evaluated_motion(context, armature, scene):
     return largest_delta > 1e-5, f'Maximum sampled pose-matrix difference: {largest_delta:.6g}'
 
 
-def _build_unity_export_armature(context, source_armature):
-    """Build a temporary, baked armature matching the user's Unity R6 hierarchy.
+def _build_unity_export_armature(context, source_armature, template_armature):
+    """Bake source motion onto a duplicate of the user's actual Unity rig.
 
-    The source InternalArmature is never reparented or renamed. Evaluated
-    armature-space pose matrices are copied frame-by-frame onto a temporary
-    armature whose legs are direct children of HumanoidRootPart.
+    Each source bone's pose delta is measured relative to its source rest
+    matrix, then applied to the corresponding template rest matrix. This
+    preserves the template's bone roll, local axes, rest orientation, and
+    hierarchy instead of exporting the InternalArmature's rest pose.
     """
     scene = context.scene
     expected = {
         "HumanoidRootPart", "Torso", "Head", "Left Arm",
         "Right Arm", "Left Leg", "Right Leg",
     }
-    actual = {bone.name for bone in source_armature.data.bones}
-    if actual != expected:
+
+    source_names = {bone.name for bone in source_armature.data.bones}
+    template_names = {bone.name for bone in template_armature.data.bones}
+    if source_names != expected:
         raise RuntimeError(
-            "Cannot build Unity hierarchy: source bones must be exactly "
-            "HumanoidRootPart, Torso, Head, Left Arm, Right Arm, Left Leg, "
-            "and Right Leg."
+            "Source armature must contain exactly the seven expected R6 bones."
+        )
+    if template_names != expected:
+        raise RuntimeError(
+            "Unity skeleton template must contain exactly: HumanoidRootPart, "
+            "Torso, Head, Left Arm, Right Arm, Left Leg, and Right Leg."
         )
 
+    template_bones = template_armature.data.bones
+    expected_parents = {
+        "HumanoidRootPart": None,
+        "Torso": "HumanoidRootPart",
+        "Head": "Torso",
+        "Left Arm": "Torso",
+        "Right Arm": "Torso",
+        "Left Leg": "HumanoidRootPart",
+        "Right Leg": "HumanoidRootPart",
+    }
+    for bone_name, parent_name in expected_parents.items():
+        actual_parent = template_bones[bone_name].parent
+        actual_parent_name = actual_parent.name if actual_parent else None
+        if actual_parent_name != parent_name:
+            raise RuntimeError(
+                f"Unity template hierarchy mismatch for '{bone_name}': "
+                f"expected parent '{parent_name}', got '{actual_parent_name}'."
+            )
+
+    scene = context.scene
     source_frame = scene.frame_current
     source_subframe = scene.frame_subframe
     duplicate = bpy.data.objects.new(
         "__Unity_R6_Export_Temporary",
-        source_armature.data.copy(),
+        template_armature.data.copy(),
     )
-    duplicate.matrix_world = source_armature.matrix_world.copy()
+    duplicate.matrix_world = template_armature.matrix_world.copy()
     scene.collection.objects.link(duplicate)
 
     try:
@@ -241,7 +267,10 @@ def _build_unity_export_armature(context, source_armature):
                     raise RuntimeError(
                         f"Could not sample evaluated bone '{bone.name}'."
                     )
-                target_pose_bone.matrix = source_pose_bone.matrix.copy()
+                source_rest = source_armature.data.bones[bone.name].matrix_local
+                target_rest = duplicate.data.bones[bone.name].matrix_local
+                pose_delta = source_pose_bone.matrix @ source_rest.inverted_safe()
+                target_pose_bone.matrix = pose_delta @ target_rest
                 target_pose_bone.keyframe_insert(
                     data_path="location", frame=frame, group=bone.name
                 )
@@ -313,9 +342,27 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
         settings = getattr(scene, "rbx_anim_settings", None)
         armature_name = getattr(settings, "rbx_anim_armature", "") if settings else ""
         armature = bpy.data.objects.get(armature_name) if armature_name else None
+        template_name = (
+            getattr(settings, "rbx_unity_template_armature", "") if settings else ""
+        )
+        template_armature = (
+            bpy.data.objects.get(template_name) if template_name else None
+        )
 
         if armature is None or armature.type != "ARMATURE":
-            self.report({"ERROR"}, "Choose a valid target armature first.")
+            self.report({"ERROR"}, "Choose a valid source armature first.")
+            return {"CANCELLED"}
+        if template_armature is None or template_armature.type != "ARMATURE":
+            self.report(
+                {"ERROR"},
+                "Choose your custom player armature in Unity Skeleton Template.",
+            )
+            return {"CANCELLED"}
+        if template_armature == armature:
+            self.report(
+                {"ERROR"},
+                "Source armature and Unity skeleton template must be different objects.",
+            )
             return {"CANCELLED"}
 
         if not self.filepath:
@@ -385,7 +432,9 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             # Build a temporary baked skeleton matching the custom Unity R6:
             # legs are children of HumanoidRootPart, not Torso. The original
             # hidden InternalArmature and its constraints remain untouched.
-            export_armature = _build_unity_export_armature(context, armature)
+            export_armature = _build_unity_export_armature(
+                context, armature, template_armature
+            )
 
             bpy.ops.object.select_all(action="DESELECT")
             export_armature.select_set(True)
