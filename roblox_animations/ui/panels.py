@@ -184,6 +184,26 @@ class OBJECT_PT_RbxAnimations(bpy.types.Panel):
         armature_ops_box.label(text="Armature Operations")
         armature_ops_box.prop(settings, "rbx_anim_armature", text="Target")
 
+        # Keep Unity export controls outside the selected-armature inner panel.
+        # The latter returns early when its target cannot be resolved, which
+        # previously hid the entire Unity section even though the Target field
+        # itself remained visible.
+        unity_box = armature_ops_box.box()
+        unity_box.label(text="Unity Export", icon="EXPORT")
+        unity_box.label(
+            text="For R6IK, use InternalArmature as the source and your seven-bone Unity rig as the template."
+        )
+        if settings:
+            unity_box.prop(
+                settings, "rbx_unity_template_armature",
+                text="Unity Skeleton Template",
+            )
+        unity_box.operator(
+            "object.rbxanims_export_unity_fbx",
+            text="Export for Unity (.fbx)",
+            icon="EXPORT",
+        )
+
         selected_armature = (
             get_object_by_name(settings.rbx_anim_armature) if settings else None
         )
@@ -462,17 +482,6 @@ class OBJECT_PT_RbxAnimations(bpy.types.Panel):
         col.separator()
         col.operator("object.rbxanims_bake", text="Bake (Clipboard)", icon="EXPORT")
         col.operator("object.rbxanims_bake_file", text="Bake to File", icon="FILE")
-
-        unity_box = animation_box.box()
-        unity_box.label(text="Unity Export", icon="EXPORT")
-        unity_box.label(text="Source may use a different hierarchy from the Unity destination. For R6IK, select InternalArmature.")
-        if settings:
-            unity_box.prop(settings, "rbx_unity_template_armature", text="Unity Skeleton Template")
-        unity_box.operator(
-            "object.rbxanims_export_unity_fbx",
-            text="Export for Unity (.fbx)",
-            icon="EXPORT",
-        )
 
         # # # Add the force deform serialization checkbox for testing
         # dev_box = inner_box.box()
