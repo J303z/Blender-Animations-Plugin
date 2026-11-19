@@ -33,8 +33,17 @@ _R6_EXPECTED_PARENTS = {
 }
 
 
-def _validate_r6_armature(armature, label):
-    """Validate the exact seven-bone R6 skeleton before attempting a bake."""
+def _validate_r6_armature(
+    armature, label, expected_parents=_R6_EXPECTED_PARENTS
+):
+    """Validate the seven-bone R6 skeleton and optionally its hierarchy.
+
+    The source and destination skeletons may intentionally have different
+    parent structures. The source is sampled in evaluated armature space;
+    the destination hierarchy determines how those transforms are rebased.
+    Pass expected_parents=None for a source skeleton whose hierarchy is allowed
+    to differ. Destination/template skeletons must use the custom Unity layout.
+    """
     if armature is None or armature.type != "ARMATURE":
         raise RuntimeError(f"{label} is not a valid armature.")
 
@@ -53,16 +62,23 @@ def _validate_r6_armature(armature, label):
             "not the R6IK control armature."
         )
 
-    for bone_name, expected_parent in _R6_EXPECTED_PARENTS.items():
-        bone = armature.data.bones[bone_name]
-        actual_parent = bone.parent.name if bone.parent else None
-        if actual_parent != expected_parent:
-            expected_text = expected_parent if expected_parent else "no parent"
-            actual_text = actual_parent if actual_parent else "no parent"
-            raise RuntimeError(
-                f"{label} hierarchy mismatch for '{bone_name}': "
-                f"expected {expected_text}, got {actual_text}."
-            )
+    root = armature.data.bones["HumanoidRootPart"]
+    if root.parent is not None:
+        raise RuntimeError(
+            f"{label} must have HumanoidRootPart as its root bone."
+        )
+
+    if expected_parents is not None:
+        for bone_name, expected_parent in expected_parents.items():
+            bone = armature.data.bones[bone_name]
+            actual_parent = bone.parent.name if bone.parent else None
+            if actual_parent != expected_parent:
+                expected_text = expected_parent if expected_parent else "no parent"
+                actual_text = actual_parent if actual_parent else "no parent"
+                raise RuntimeError(
+                    f"{label} hierarchy mismatch for '{bone_name}': "
+                    f"expected {expected_text}, got {actual_text}."
+                )
 
 
 def _find_layer_collection_path(layer_collection, target_collection):
@@ -215,20 +231,26 @@ def _sample_evaluated_motion(context, armature, scene):
 
 
 def _build_unity_export_armature(context, source_armature, template_armature):
-    """Bake source motion onto a duplicate of the user's actual Unity rig.
+    """Bake evaluated source motion onto a duplicate of the Unity template.
 
-    Each evaluated source bone's local pose is extracted relative to its
-    evaluated parent and rest-local matrix. That local transform is converted
-    between source and template bone axes, then keyed on the template duplicate.
-    This preserves parent motion without double-applying it and respects the
-    template's bone roll, local axes, rest orientation, and hierarchy.
+    Source and destination parent hierarchies may differ. For each destination
+    bone, the source bone's evaluated armature-space transform is rebased
+    relative to the destination's parent bone (matched by name), then converted
+    between source and destination rest axes. This is essential for converting
+    R6IK legs parented to Torso into the custom Unity hierarchy where the legs
+    are parented directly to HumanoidRootPart.
+
+    The source/control rig is never modified. The temporary destination has no
+    constraints; it receives only baked animation keys.
     """
     scene = context.scene
     # The source is the evaluated seven-bone deform/export rig. In an
     # R6IK scene this is normally InternalArmature, driven by __PrimaryArmature.
     # The template may be the same object; the exporter always bakes to a
     # temporary duplicate, so the user's rig is never modified.
-    _validate_r6_armature(source_armature, "Source armature")
+    _validate_r6_armature(
+        source_armature, "Source armature", expected_parents=None
+    )
     _validate_r6_armature(template_armature, "Unity skeleton template")
 
     scene = context.scene
@@ -301,8 +323,10 @@ def _build_unity_export_armature(context, source_armature, template_armature):
                         duplicate.data.bones[parent_name].matrix_local
                     )
 
-                # Extract the evaluated local animation after removing the
-                # source parent's current pose and the source bone's rest offset.
+                # Rebase the evaluated source bone against the DESTINATION
+                # parent (matched by name), not its original source parent.
+                # This permits different source/destination hierarchies while
+                # preserving the source bone's evaluated armature-space motion.
                 source_rest_local = (
                     source_parent_rest.inverted_safe() @ source_rest
                 )
@@ -431,7 +455,9 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             self.report({"ERROR"}, "The target armature has no bones.")
             return {"CANCELLED"}
         try:
-            _validate_r6_armature(armature, "Target armature")
+            _validate_r6_armature(
+                armature, "Target armature", expected_parents=None
+            )
             _validate_r6_armature(template_armature, "Unity skeleton template")
         except RuntimeError as exc:
             self.report({"ERROR"}, str(exc))
