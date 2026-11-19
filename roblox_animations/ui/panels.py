@@ -465,7 +465,9 @@ class OBJECT_PT_RbxAnimations(bpy.types.Panel):
 
         unity_box = animation_box.box()
         unity_box.label(text="Unity Export", icon="EXPORT")
-        unity_box.label(text="Exports the target armature animation as an FBX.")
+        unity_box.label(text="Retargets the selected animation onto your Unity player skeleton.")
+        if settings:
+            unity_box.prop(settings, "rbx_unity_template_armature", text="Skeleton Template")
         unity_box.operator(
             "object.rbxanims_export_unity_fbx",
             text="Export for Unity (.fbx)",
