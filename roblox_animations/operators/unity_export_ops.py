@@ -10,7 +10,8 @@ for evaluation and is not included in the exported hierarchy.
 import os
 import bpy
 from bpy.types import Operator
-from bpy.props import StringProperty
+from bpy.props import StringProperty, BoolProperty
+from mathutils import Matrix
 from bpy_extras.io_utils import ExportHelper
 
 
@@ -229,7 +230,9 @@ def _sample_evaluated_motion(context, armature, scene):
     return largest_delta > 1e-5, f'Maximum sampled pose-matrix difference: {largest_delta:.6g}'
 
 
-def _build_unity_export_armature(context, source_armature, template_armature):
+def _build_unity_export_armature(
+    context, source_armature, template_armature, apply_limb_z180=False
+):
     """Bake evaluated source motion onto a duplicate of the Unity template.
 
     For each matching bone, transfer its evaluated transform relative to its
@@ -322,6 +325,18 @@ def _build_unity_export_armature(context, source_armature, template_armature):
                     target_object_world_inverse @ target_pose_world
                 )
 
+                # Optional, reversible orientation test: rotate every R6 bone
+                # except HumanoidRootPart and Torso by 180 degrees around its
+                # own local Blender Z axis. Post-multiplication changes the
+                # bone orientation without changing its joint position.
+                if apply_limb_z180 and bone.name not in {
+                    "HumanoidRootPart", "Torso"
+                }:
+                    target_pose_armature = (
+                        target_pose_armature
+                        @ Matrix.Rotation(3.141592653589793, 4, "Z")
+                    )
+
                 target_pose_bone.matrix = target_pose_armature
                 context.view_layer.update()
                 target_pose_bone.keyframe_insert(
@@ -388,6 +403,14 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
     bl_options = {"REGISTER"}
 
     filename_ext = ".fbx"
+    apply_limb_z180: BoolProperty(
+        name="Apply 180° local Z correction to limbs",
+        description=(
+            "Test a 180-degree local Blender Z orientation correction on Head, "
+            "both arms and both legs; disable to revert to the original orientation"
+        ),
+        default=True,
+    )
     filter_glob: StringProperty(
         default="*.fbx",
         options={"HIDDEN"},
@@ -505,7 +528,8 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             # R6 hierarchy and rest axes. The original armature and constraints
             # remain untouched, even when source and template are the same object.
             export_armature = _build_unity_export_armature(
-                context, armature, template_armature
+                context, armature, template_armature,
+                apply_limb_z180=self.apply_limb_z180,
             )
 
             bpy.ops.object.select_all(action="DESELECT")
