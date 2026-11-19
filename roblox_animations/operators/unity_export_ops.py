@@ -233,12 +233,9 @@ def _sample_evaluated_motion(context, armature, scene):
 def _build_unity_export_armature(context, source_armature, template_armature):
     """Bake evaluated source motion onto a duplicate of the Unity template.
 
-    Source and destination parent hierarchies may differ. For each destination
-    bone, the source bone's evaluated armature-space transform is rebased
-    relative to the destination's parent bone (matched by name), then converted
-    between source and destination rest axes. This is essential for converting
-    R6IK legs parented to Torso into the custom Unity hierarchy where the legs
-    are parented directly to HumanoidRootPart.
+    For each matching bone, transfer its evaluated transform relative to its
+    source rest pose onto the destination rest pose in world space. This avoids
+    relying on matching parent trees and supports R6IK-to-Unity hierarchy changes.
 
     The source/control rig is never modified. The temporary destination has no
     constraints; it receives only baked animation keys.
@@ -279,19 +276,24 @@ def _build_unity_export_armature(context, source_armature, template_armature):
                 pose_bone.constraints.remove(constraint)
             pose_bone.rotation_mode = "QUATERNION"
 
-        # Key every frame using evaluated parent-relative bone transforms.
-        # This removes parent motion before retargeting, so it is not applied
-        # twice when the template's own parent hierarchy evaluates the pose.
+        # Bake each source bone's motion relative to its own rest pose.
+        # Work in world space so differing armature object transforms are handled,
+        # then express the result in the Unity template's armature space. Assigning
+        # pose_bone.matrix lets Blender derive the correct local channels for the
+        # destination hierarchy (including legs reparented from Torso to HRP).
+        ordered_bones = sorted(
+            duplicate.data.bones,
+            key=lambda bone: _bone_depth(bone),
+        )
+        target_object_world_inverse = duplicate.matrix_world.inverted_safe()
+
         for frame in range(int(scene.frame_start), int(scene.frame_end) + 1):
             scene.frame_set(frame)
             context.view_layer.update()
             depsgraph = context.evaluated_depsgraph_get()
             evaluated_source = source_armature.evaluated_get(depsgraph)
+            source_object_world = evaluated_source.matrix_world.copy()
 
-            ordered_bones = sorted(
-                duplicate.data.bones,
-                key=lambda bone: _bone_depth(bone),
-            )
             for bone in ordered_bones:
                 source_pose_bone = evaluated_source.pose.bones.get(bone.name)
                 target_pose_bone = duplicate.pose.bones.get(bone.name)
@@ -299,59 +301,31 @@ def _build_unity_export_armature(context, source_armature, template_armature):
                     raise RuntimeError(
                         f"Could not sample evaluated bone '{bone.name}'."
                     )
-                source_rest = source_armature.data.bones[bone.name].matrix_local
-                target_rest = duplicate.data.bones[bone.name].matrix_local
-                parent_name = bone.parent.name if bone.parent else None
 
-                if parent_name is None:
-                    source_parent_rest = Matrix.Identity(4)
-                    source_parent_pose = Matrix.Identity(4)
-                    target_parent_rest = Matrix.Identity(4)
-                else:
-                    source_parent_rest = (
-                        source_armature.data.bones[parent_name].matrix_local
-                    )
-                    source_parent_pose_bone = evaluated_source.pose.bones.get(
-                        parent_name
-                    )
-                    if source_parent_pose_bone is None:
-                        raise RuntimeError(
-                            f"Could not sample evaluated parent '{parent_name}'."
-                        )
-                    source_parent_pose = source_parent_pose_bone.matrix
-                    target_parent_rest = (
-                        duplicate.data.bones[parent_name].matrix_local
-                    )
-
-                # Rebase the evaluated source bone against the DESTINATION
-                # parent (matched by name), not its original source parent.
-                # This permits different source/destination hierarchies while
-                # preserving the source bone's evaluated armature-space motion.
-                source_rest_local = (
-                    source_parent_rest.inverted_safe() @ source_rest
+                source_rest_world = (
+                    source_object_world
+                    @ source_armature.data.bones[bone.name].matrix_local
                 )
-                source_pose_local = (
-                    source_parent_pose.inverted_safe() @ source_pose_bone.matrix
+                source_pose_world = (
+                    source_object_world @ source_pose_bone.matrix
                 )
-                source_basis = (
-                    source_rest_local.inverted_safe() @ source_pose_local
+                target_rest_world = (
+                    template_armature.matrix_world
+                    @ duplicate.data.bones[bone.name].matrix_local
                 )
 
-                # Convert the source bone-local coordinate frame to the target
-                # bone-local frame. Conjugation preserves the same physical
-                # rotation/translation when the two bones have different rolls.
-                target_rest_local = (
-                    target_parent_rest.inverted_safe() @ target_rest
+                # Transfer the source bone's rest-relative motion onto the
+                # matching destination rest bone, independent of parent trees.
+                source_rest_delta = (
+                    source_rest_world.inverted_safe() @ source_pose_world
                 )
-                source_to_target_bone = (
-                    target_rest_local.inverted_safe() @ source_rest_local
+                target_pose_world = target_rest_world @ source_rest_delta
+                target_pose_armature = (
+                    target_object_world_inverse @ target_pose_world
                 )
-                target_basis = (
-                    source_to_target_bone
-                    @ source_basis
-                    @ source_to_target_bone.inverted_safe()
-                )
-                target_pose_bone.matrix_basis = target_basis
+
+                target_pose_bone.matrix = target_pose_armature
+                context.view_layer.update()
                 target_pose_bone.keyframe_insert(
                     data_path="location", frame=frame, group=bone.name
                 )
@@ -365,6 +339,19 @@ def _build_unity_export_armature(context, source_armature, template_armature):
 
         if duplicate.animation_data is None or duplicate.animation_data.action is None:
             raise RuntimeError("The temporary Unity armature received no animation action.")
+
+        if duplicate.animation_data.action is not None:
+            duplicate.animation_data.action.name = "ECHO_Unity_Baked"
+
+        # Verify that the keyed destination actually moves before exporting.
+        baked_motion, baked_details = _sample_evaluated_motion(
+            context, duplicate, scene
+        )
+        if not baked_motion:
+            raise RuntimeError(
+                "The temporary Unity skeleton did not retain the sampled motion. "
+                + baked_details
+            )
 
         # Confirm that the temporary skeleton retained the user's exact
         # custom R6 hierarchy, including legs parented to HumanoidRootPart.
@@ -498,9 +485,18 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             # Check that the constrained export armature actually receives motion.
             has_motion, motion_details = _sample_evaluated_motion(context, armature, scene)
             if not has_motion:
-                self.report({"WARNING"}, "No evaluated pose change detected across the scene range. " + motion_details + ". Check constraints and frame range.")
-            else:
-                print("Unity FBX preflight: evaluated target motion detected. " + motion_details)
+                self.report(
+                    {"ERROR"},
+                    "The selected evaluated R6 armature is not moving. "
+                    + motion_details
+                    + ". Keep the R6IK control rig and its constraints enabled, "
+                    "and check the scene frame range."
+                )
+                return {"CANCELLED"}
+            print(
+                "Unity FBX preflight: evaluated source motion detected. "
+                + motion_details
+            )
             scene.frame_set(previous_frame, subframe=previous_subframe)
 
             # FBX export requires Object Mode. Exit the mode of the currently
