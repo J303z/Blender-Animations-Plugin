@@ -19,6 +19,127 @@ _R6_BONE_NAMES = {
     "Right Leg", "Left Leg", "Head",
 }
 
+
+def _find_layer_collection_path(layer_collection, target_collection):
+    """Return the active view-layer path to a collection, or None."""
+    if layer_collection.collection == target_collection:
+        return [layer_collection]
+
+    for child in layer_collection.children:
+        child_path = _find_layer_collection_path(child, target_collection)
+        if child_path is not None:
+            return [layer_collection] + child_path
+
+    return None
+
+
+def _restore_armature_visibility(armature, view_layer, state):
+    """Restore object and collection visibility captured for an export."""
+    if state is None:
+        return
+
+    # Restore object-level visibility while its collection path is still
+    # available in the view layer.
+    armature.hide_viewport = state["object_hide_viewport"]
+    armature.hide_set(state["object_hide_set"], view_layer=view_layer)
+
+    # Restore per-view-layer flags, then the collection-wide viewport flags.
+    for layer_collection, was_excluded, was_hidden in reversed(
+        state["layer_collections"]
+    ):
+        layer_collection.exclude = was_excluded
+        layer_collection.hide_viewport = was_hidden
+
+    for collection, was_hidden in reversed(state["collections"]):
+        collection.hide_viewport = was_hidden
+
+    view_layer.update()
+
+
+def _temporarily_reveal_armature(armature, view_layer):
+    """Temporarily reveal a hidden target and return its restoration state.
+
+    Blender's FBX exporter operates on the active view layer and selected
+    objects. A target inside a hidden collection can evaluate correctly but
+    still be omitted from export. Reveal only the target's collection paths
+    and restore every changed visibility flag after export.
+    """
+    layer_paths = []
+    for collection in armature.users_collection:
+        path = _find_layer_collection_path(
+            view_layer.layer_collection, collection
+        )
+        if path is not None:
+            layer_paths.append(path)
+
+    if not layer_paths:
+        raise RuntimeError(
+            "Could not locate the target armature's collection in the active "
+            "view layer."
+        )
+
+    state = {
+        "object_hide_viewport": armature.hide_viewport,
+        "object_hide_set": armature.hide_get(view_layer=view_layer),
+        "collections": [],
+        "layer_collections": [],
+    }
+
+    for path in layer_paths:
+        for layer_collection in path:
+            if not any(
+                existing is layer_collection
+                for existing, _excluded, _hidden in state["layer_collections"]
+            ):
+                state["layer_collections"].append(
+                    (
+                        layer_collection,
+                        layer_collection.exclude,
+                        layer_collection.hide_viewport,
+                    )
+                )
+
+            collection = layer_collection.collection
+            if not any(
+                existing is collection
+                for existing, _hidden in state["collections"]
+            ):
+                state["collections"].append(
+                    (collection, collection.hide_viewport)
+                )
+
+    try:
+        # Unhide only the collection paths that contain the target armature.
+        for collection, _was_hidden in state["collections"]:
+            collection.hide_viewport = False
+
+        for layer_collection, _was_excluded, _was_hidden in state[
+            "layer_collections"
+        ]:
+            layer_collection.exclude = False
+            layer_collection.hide_viewport = False
+
+        armature.hide_viewport = False
+        armature.hide_set(False, view_layer=view_layer)
+        view_layer.update()
+
+        if not armature.visible_get(view_layer=view_layer):
+            raise RuntimeError(
+                "The target armature remains hidden after temporarily "
+                "revealing its collection."
+            )
+    except Exception:
+        try:
+            _restore_armature_visibility(armature, view_layer, state)
+        except Exception as restore_exc:
+            print(
+                "Unity FBX export: visibility rollback failed: "
+                f"{restore_exc}"
+            )
+        raise
+
+    return state
+
 def _sample_evaluated_motion(context, armature, scene):
     """Check whether the evaluated target pose changes across the scene range."""
     start, end = int(scene.frame_start), int(scene.frame_end)
@@ -110,14 +231,6 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
                 "an included collection before exporting.",
             )
             return {"CANCELLED"}
-        if not armature.visible_get(view_layer=view_layer):
-            self.report(
-                {"ERROR"},
-                "The target armature is hidden. Make it visible in the active view layer "
-                "before exporting.",
-            )
-            return {"CANCELLED"}
-
         try:
             bpy.ops.export_scene.fbx.get_rna_type()
         except (AttributeError, RuntimeError):
@@ -133,8 +246,14 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
         previous_mode = previous_active.mode if previous_active else "OBJECT"
         previous_frame = scene.frame_current
         previous_subframe = scene.frame_subframe
+        visibility_state = None
 
         try:
+            # Blender's FBX exporter needs the selected target to be visible.
+            # Temporarily reveal hidden collection paths without changing the
+            # user's saved rig visibility.
+            visibility_state = _temporarily_reveal_armature(armature, view_layer)
+
             # Check that the constrained export armature actually receives motion.
             has_motion, motion_details = _sample_evaluated_motion(context, armature, scene)
             if not has_motion:
@@ -212,6 +331,18 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
                         bpy.ops.object.mode_set(mode=previous_mode)
             except Exception as restore_exc:
                 print(f"Unity FBX export: could not fully restore Blender context: {restore_exc}")
+            finally:
+                # Visibility restoration must run even if context restoration fails.
+                if visibility_state is not None:
+                    try:
+                        _restore_armature_visibility(
+                            armature, view_layer, visibility_state
+                        )
+                    except Exception as visibility_restore_exc:
+                        print(
+                            "Unity FBX export: could not restore original "
+                            f"visibility state: {visibility_restore_exc}"
+                        )
 
         self.report(
             {"INFO"},
