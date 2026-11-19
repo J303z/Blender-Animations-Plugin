@@ -168,6 +168,120 @@ def _sample_evaluated_motion(context, armature, scene):
             largest_delta = max(largest_delta, delta)
     return largest_delta > 1e-5, f'Maximum sampled pose-matrix difference: {largest_delta:.6g}'
 
+
+def _build_unity_export_armature(context, source_armature):
+    """Build a temporary, baked armature matching the user's Unity R6 hierarchy.
+
+    The source InternalArmature is never reparented or renamed. Evaluated
+    armature-space pose matrices are copied frame-by-frame onto a temporary
+    armature whose legs are direct children of HumanoidRootPart.
+    """
+    scene = context.scene
+    expected = {
+        "HumanoidRootPart", "Torso", "Head", "Left Arm",
+        "Right Arm", "Left Leg", "Right Leg",
+    }
+    actual = {bone.name for bone in source_armature.data.bones}
+    if actual != expected:
+        raise RuntimeError(
+            "Cannot build Unity hierarchy: source bones must be exactly "
+            "HumanoidRootPart, Torso, Head, Left Arm, Right Arm, Left Leg, "
+            "and Right Leg."
+        )
+
+    source_frame = scene.frame_current
+    source_subframe = scene.frame_subframe
+    duplicate = bpy.data.objects.new(
+        "__Unity_R6_Export_Temporary",
+        source_armature.data.copy(),
+    )
+    duplicate.matrix_world = source_armature.matrix_world.copy()
+    scene.collection.objects.link(duplicate)
+
+    try:
+        # Make the duplicate active so Blender can edit its bone hierarchy.
+        bpy.ops.object.select_all(action="DESELECT")
+        duplicate.hide_viewport = False
+        duplicate.hide_set(False)
+        duplicate.select_set(True)
+        context.view_layer.objects.active = duplicate
+        bpy.ops.object.mode_set(mode="EDIT")
+
+        edit_bones = duplicate.data.edit_bones
+        root = edit_bones["HumanoidRootPart"]
+        edit_bones["Left Leg"].parent = root
+        edit_bones["Right Leg"].parent = root
+        edit_bones["Left Leg"].use_connect = False
+        edit_bones["Right Leg"].use_connect = False
+
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+        # The duplicate must contain no constraints: its motion is baked below.
+        for pose_bone in duplicate.pose.bones:
+            for constraint in list(pose_bone.constraints):
+                pose_bone.constraints.remove(constraint)
+            pose_bone.rotation_mode = "QUATERNION"
+
+        # Key every frame. Assigning armature-space matrices preserves the
+        # evaluated world-in-armature pose despite the changed parent links.
+        for frame in range(int(scene.frame_start), int(scene.frame_end) + 1):
+            scene.frame_set(frame)
+            context.view_layer.update()
+            depsgraph = context.evaluated_depsgraph_get()
+            evaluated_source = source_armature.evaluated_get(depsgraph)
+
+            ordered_bones = sorted(
+                duplicate.data.bones,
+                key=lambda bone: _bone_depth(bone),
+            )
+            for bone in ordered_bones:
+                source_pose_bone = evaluated_source.pose.bones.get(bone.name)
+                target_pose_bone = duplicate.pose.bones.get(bone.name)
+                if source_pose_bone is None or target_pose_bone is None:
+                    raise RuntimeError(
+                        f"Could not sample evaluated bone '{bone.name}'."
+                    )
+                target_pose_bone.matrix = source_pose_bone.matrix.copy()
+                target_pose_bone.keyframe_insert(
+                    data_path="location", frame=frame, group=bone.name
+                )
+                target_pose_bone.keyframe_insert(
+                    data_path="rotation_quaternion", frame=frame,
+                    group=bone.name
+                )
+                target_pose_bone.keyframe_insert(
+                    data_path="scale", frame=frame, group=bone.name
+                )
+
+        if duplicate.animation_data is None or duplicate.animation_data.action is None:
+            raise RuntimeError("The temporary Unity armature received no animation action.")
+
+        # Confirm the output parent relationships before allowing export.
+        if duplicate.data.bones["Left Leg"].parent.name != "HumanoidRootPart":
+            raise RuntimeError("Left Leg was not reparented to HumanoidRootPart.")
+        if duplicate.data.bones["Right Leg"].parent.name != "HumanoidRootPart":
+            raise RuntimeError("Right Leg was not reparented to HumanoidRootPart.")
+
+        return duplicate
+    except Exception:
+        bpy.data.objects.remove(duplicate, do_unlink=True)
+        if duplicate.data.users == 0:
+            bpy.data.armatures.remove(duplicate.data)
+        raise
+    finally:
+        scene.frame_set(source_frame, subframe=source_subframe)
+
+
+def _bone_depth(bone):
+    """Return a bone's hierarchy depth for parent-first pose assignment."""
+    depth = 0
+    parent = bone.parent
+    while parent is not None:
+        depth += 1
+        parent = parent.parent
+    return depth
+
+
 class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
     """Export the target armature's evaluated animation as a Unity FBX"""
 
@@ -247,6 +361,7 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
         previous_frame = scene.frame_current
         previous_subframe = scene.frame_subframe
         visibility_state = None
+        export_armature = None
 
         try:
             # Blender's FBX exporter needs the selected target to be visible.
@@ -267,9 +382,14 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             if previous_active and previous_active.mode != "OBJECT":
                 bpy.ops.object.mode_set(mode="OBJECT")
 
+            # Build a temporary baked skeleton matching the custom Unity R6:
+            # legs are children of HumanoidRootPart, not Torso. The original
+            # hidden InternalArmature and its constraints remain untouched.
+            export_armature = _build_unity_export_armature(context, armature)
+
             bpy.ops.object.select_all(action="DESELECT")
-            armature.select_set(True)
-            view_layer.objects.active = armature
+            export_armature.select_set(True)
+            view_layer.objects.active = export_armature
 
             export_result = bpy.ops.export_scene.fbx(
                 filepath=self.filepath,
@@ -311,6 +431,14 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             # Do not leave the user's source scene in a different interaction mode.
             try:
                 scene.frame_set(previous_frame, subframe=previous_subframe)
+
+                # Remove the temporary baked export armature; never leave it
+                # in the user's Blender scene.
+                if export_armature is not None:
+                    temporary_data = export_armature.data
+                    bpy.data.objects.remove(export_armature, do_unlink=True)
+                    if temporary_data.users == 0:
+                        bpy.data.armatures.remove(temporary_data)
 
                 active_now = view_layer.objects.active
                 if active_now and active_now.mode != "OBJECT":
