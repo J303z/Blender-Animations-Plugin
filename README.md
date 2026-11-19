@@ -33,6 +33,7 @@ The project preserves the original Roblox animation workflow and adds a separate
 
 - This first Unity exporter is intentionally animation-only: it exports the armature, not the character mesh.
 - The target armature must evaluate correctly in Blender before export. Driver rigs and constraint targets must remain available in the scene so Blender can evaluate the dependency graph; only the target armature is selected for FBX export.
+- The target armature may live in a hidden internal collection. During export, the add-on temporarily reveals only the target's collection path and object in the active view layer, then restores their original viewport visibility even if export fails. Render visibility is left unchanged.
 - The exporter deliberately uses Blender's global scene animation bake (NLA-strip export off and all-actions export off). Blender samples the selected armature's evaluated pose over the scene frame range, so a separate control rig can drive it through constraints without being included in the FBX. This avoids destructive manual constraint clearing or baking on the original rig.
 - The initial implementation is designed around Blender's built-in FBX exporter. Unity import settings, root motion, bone orientation, and rest-pose compatibility still need validation against real rigs.
 - For the best result, the Unity character and animation FBXs should share a compatible skeleton hierarchy, root bone, rest pose, and bone names.
