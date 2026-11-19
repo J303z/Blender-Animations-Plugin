@@ -231,7 +231,11 @@ def _sample_evaluated_motion(context, armature, scene):
 
 
 def _build_unity_export_armature(
-    context, source_armature, template_armature, apply_limb_unity_z180=False
+    context,
+    source_armature,
+    template_armature,
+    apply_limb_unity_z180=False,
+    apply_limb_rest_axis_conversion=True,
 ):
     """Bake evaluated source motion onto a duplicate of the Unity template.
 
@@ -382,10 +386,38 @@ def _build_unity_export_armature(
                 target_local_rest = (
                     target_parent_rest_world.inverted_safe() @ target_rest_world
                 )
+
+                # Convert the source animation delta from the source bone's
+                # parent-relative rest axes into the destination bone's
+                # parent-relative rest axes. This is V10's per-bone basis
+                # conjugation, correctly combined with the current
+                # parent-relative movement transfer.
+                #
+                # B maps source-local rest coordinates to target-local rest
+                # coordinates:
+                #   B = inverse(target_local_rest) * source_local_rest
+                # A transform changes basis by conjugation:
+                #   target_delta = B * source_delta * inverse(B)
+                # Do this independently for Head, both arms and both legs.
+                if (
+                    apply_limb_rest_axis_conversion
+                    and bone.name not in {"HumanoidRootPart", "Torso"}
+                ):
+                    source_to_target_basis = (
+                        target_local_rest.inverted_safe() @ source_local_rest
+                    )
+                    target_local_delta = (
+                        source_to_target_basis
+                        @ source_local_delta
+                        @ source_to_target_basis.inverted_safe()
+                    )
+                else:
+                    target_local_delta = source_local_delta
+
                 target_pose_world = (
                     target_parent_pose_world
                     @ target_local_rest
-                    @ source_local_delta
+                    @ target_local_delta
                 )
                 target_pose_armature = (
                     target_object_world_inverse @ target_pose_world
@@ -475,6 +507,15 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
         description=(
             "Test a 180-degree Unity-local Z orientation correction on Head, "
             "both arms and both legs; disable to revert to the original orientation"
+        ),
+        default=True,
+    )
+    apply_limb_rest_axis_conversion: BoolProperty(
+        name="Convert limb animation into Unity rest axes",
+        description=(
+            "Re-express Head, both arms and both legs using their individual "
+            "source-to-template parent-relative rest-axis conversions. "
+            "HumanoidRootPart and Torso are unchanged."
         ),
         default=True,
     )
@@ -597,6 +638,7 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             export_armature = _build_unity_export_armature(
                 context, armature, template_armature,
                 apply_limb_unity_z180=self.apply_limb_unity_z180,
+                apply_limb_rest_axis_conversion=self.apply_limb_rest_axis_conversion,
             )
 
             bpy.ops.object.select_all(action="DESELECT")
