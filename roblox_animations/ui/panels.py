@@ -465,9 +465,9 @@ class OBJECT_PT_RbxAnimations(bpy.types.Panel):
 
         unity_box = animation_box.box()
         unity_box.label(text="Unity Export", icon="EXPORT")
-        unity_box.label(text="Uses the Target as its seven-bone source. For R6IK, select InternalArmature, not __PrimaryArmature.")
+        unity_box.label(text="Source may use a different hierarchy from the Unity destination. For R6IK, select InternalArmature.")
         if settings:
-            unity_box.prop(settings, "rbx_unity_template_armature", text="Rest-Pose Template")
+            unity_box.prop(settings, "rbx_unity_template_armature", text="Unity Skeleton Template")
         unity_box.operator(
             "object.rbxanims_export_unity_fbx",
             text="Export for Unity (.fbx)",
