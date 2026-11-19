@@ -9,6 +9,7 @@ for evaluation and is not included in the exported hierarchy.
 
 import os
 import bpy
+from mathutils import Matrix
 from bpy.types import Operator
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ExportHelper
@@ -172,10 +173,11 @@ def _sample_evaluated_motion(context, armature, scene):
 def _build_unity_export_armature(context, source_armature, template_armature):
     """Bake source motion onto a duplicate of the user's actual Unity rig.
 
-    Each source bone's pose delta is measured relative to its source rest
-    matrix, then applied to the corresponding template rest matrix. This
-    preserves the template's bone roll, local axes, rest orientation, and
-    hierarchy instead of exporting the InternalArmature's rest pose.
+    Each evaluated source bone's local pose is extracted relative to its
+    evaluated parent and rest-local matrix. That local transform is converted
+    between source and template bone axes, then keyed on the template duplicate.
+    This preserves parent motion without double-applying it and respects the
+    template's bone roll, local axes, rest orientation, and hierarchy.
     """
     scene = context.scene
     expected = {
@@ -243,15 +245,9 @@ def _build_unity_export_armature(context, source_armature, template_armature):
                 pose_bone.constraints.remove(constraint)
             pose_bone.rotation_mode = "QUATERNION"
 
-        # Convert source armature-space matrices into the duplicate's space.
-        # This is identity when source and template are the same object.
-        source_to_target = (
-            duplicate.matrix_world.inverted_safe() @ source_armature.matrix_world
-        )
-
-        # Key every frame using rest-relative bone-local deltas. Applying the
-        # delta on the right of the target rest matrix preserves target bone
-        # roll/local axes instead of rotating the limbs around armature space.
+        # Key every frame using evaluated parent-relative bone transforms.
+        # This removes parent motion before retargeting, so it is not applied
+        # twice when the template's own parent hierarchy evaluates the pose.
         for frame in range(int(scene.frame_start), int(scene.frame_end) + 1):
             scene.frame_set(frame)
             context.view_layer.update()
@@ -270,16 +266,56 @@ def _build_unity_export_armature(context, source_armature, template_armature):
                         f"Could not sample evaluated bone '{bone.name}'."
                     )
                 source_rest = source_armature.data.bones[bone.name].matrix_local
-                source_rest_in_target = source_to_target @ source_rest
-                source_pose_in_target = source_to_target @ source_pose_bone.matrix
                 target_rest = duplicate.data.bones[bone.name].matrix_local
+                parent_name = bone.parent.name if bone.parent else None
 
-                # Extract the animation in the source bone's rest-local frame,
-                # then apply it in the target bone's rest-local frame.
-                local_pose_delta = (
-                    source_rest_in_target.inverted_safe() @ source_pose_in_target
+                if parent_name is None:
+                    source_parent_rest = Matrix.Identity(4)
+                    source_parent_pose = Matrix.Identity(4)
+                    target_parent_rest = Matrix.Identity(4)
+                else:
+                    source_parent_rest = (
+                        source_armature.data.bones[parent_name].matrix_local
+                    )
+                    source_parent_pose_bone = evaluated_source.pose.bones.get(
+                        parent_name
+                    )
+                    if source_parent_pose_bone is None:
+                        raise RuntimeError(
+                            f"Could not sample evaluated parent '{parent_name}'."
+                        )
+                    source_parent_pose = source_parent_pose_bone.matrix
+                    target_parent_rest = (
+                        duplicate.data.bones[parent_name].matrix_local
+                    )
+
+                # Extract the evaluated local animation after removing the
+                # source parent's current pose and the source bone's rest offset.
+                source_rest_local = (
+                    source_parent_rest.inverted_safe() @ source_rest
                 )
-                target_pose_bone.matrix = target_rest @ local_pose_delta
+                source_pose_local = (
+                    source_parent_pose.inverted_safe() @ source_pose_bone.matrix
+                )
+                source_basis = (
+                    source_rest_local.inverted_safe() @ source_pose_local
+                )
+
+                # Convert the source bone-local coordinate frame to the target
+                # bone-local frame. Conjugation preserves the same physical
+                # rotation/translation when the two bones have different rolls.
+                target_rest_local = (
+                    target_parent_rest.inverted_safe() @ target_rest
+                )
+                source_to_target_bone = (
+                    target_rest_local.inverted_safe() @ source_rest_local
+                )
+                target_basis = (
+                    source_to_target_bone
+                    @ source_basis
+                    @ source_to_target_bone.inverted_safe()
+                )
+                target_pose_bone.matrix_basis = target_basis
                 target_pose_bone.keyframe_insert(
                     data_path="location", frame=frame, group=bone.name
                 )
