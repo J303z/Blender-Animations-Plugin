@@ -1,0 +1,28 @@
+name: Python source validation
+
+on:
+  push:
+    branches:
+      - unity-export
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile all Python sources
+        run: python -m compileall -q roblox_animations tools
+
+      - name: Validate add-on runtime sources and mesh assets
+        run: python tools/validate_addon_sources.py roblox_animations
