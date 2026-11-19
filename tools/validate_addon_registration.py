@@ -67,13 +67,15 @@ try:
     assert not test_armature.visible_get(view_layer=bpy.context.view_layer)
     print("HIDDEN_COLLECTION_VISIBILITY_RESTORE_OK")
 finally:
-    if visibility_state is not None:
-        _restore_armature_visibility(
-            test_armature, bpy.context.view_layer, visibility_state
-        )
-    bpy.data.objects.remove(test_armature, do_unlink=True)
-    bpy.data.armatures.remove(test_armature_data)
-    bpy.data.collections.remove(test_collection, do_unlink=True)
+    try:
+        if visibility_state is not None:
+            _restore_armature_visibility(
+                test_armature, bpy.context.view_layer, visibility_state
+            )
+    finally:
+        bpy.data.objects.remove(test_armature, do_unlink=True)
+        bpy.data.armatures.remove(test_armature_data)
+        bpy.data.collections.remove(test_collection, do_unlink=True)
 from roblox_animations.rig import avatar_scale
 assert callable(avatar_scale.entry_limb_scale)
 print('REGISTER_OK',len(addon.CLASSES),'classes')
