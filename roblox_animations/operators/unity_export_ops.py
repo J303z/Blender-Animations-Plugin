@@ -355,19 +355,19 @@ def _build_unity_export_armature(
                     target_object_world_inverse @ target_pose_world
                 )
 
-                # Restore V9's limb-facing correction at its original stage:
-                # post-multiply the FINAL armature-space pose. This changes
-                # each selected bone's local orientation without changing
-                # the already-computed joint translation or animation curves.
-                # Keep this separate from source_rest_delta / target_rest_delta
-                # so V10's correct movement axes remain untouched.
+                # Restore V9's limb-facing correction using Blender-local Z
+                # (the axis the user identified in the original Blender rig).
+                # Post-multiply the FINAL armature-space pose so this changes
+                # only each selected bone's local orientation; the already-
+                # computed joint translation and V10 animation movement remain
+                # untouched. Keep it separate from the V10 rest-axis transfer.
                 if (
                     apply_limb_180_facing_correction
                     and bone.name not in {"HumanoidRootPart", "Torso"}
                 ):
                     target_pose_armature = (
                         target_pose_armature
-                        @ Matrix.Rotation(3.141592653589793, 4, "Y")
+                        @ Matrix.Rotation(3.141592653589793, 4, "Z")
                     )
 
                 target_pose_bone.matrix = target_pose_armature
@@ -446,10 +446,11 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
         default=True,
     )
     apply_limb_180_facing_correction: BoolProperty(
-        name="Apply V9 180° limb facing correction",
+        name="Apply V9 180° Blender-Z orientation correction",
         description=(
-            "Apply V9's reversible 180-degree local-Z facing correction to "
-            "Head, both arms and both legs after V10's animation transfer. "
+            "Apply V9's reversible 180-degree rotation around Blender-local Z "
+            "to Head, both arms and both legs after V10's animation transfer. "
+            "Preserves sampled joint translations and movement. "
             "HumanoidRootPart and Torso are never modified."
         ),
         default=True,
