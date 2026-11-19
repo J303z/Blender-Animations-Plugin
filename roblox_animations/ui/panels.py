@@ -182,7 +182,7 @@ class OBJECT_PT_RbxAnimations(bpy.types.Panel):
             return
 
         armature_ops_box.label(text="Armature Operations")
-        armature_ops_box.prop(settings, "rbx_anim_armature", text="Target")
+        armature_ops_box.prop(settings, "rbx_anim_armature", text="Target R6 Rig")
 
         selected_armature = (
             get_object_by_name(settings.rbx_anim_armature) if settings else None
@@ -465,9 +465,9 @@ class OBJECT_PT_RbxAnimations(bpy.types.Panel):
 
         unity_box = animation_box.box()
         unity_box.label(text="Unity Export", icon="EXPORT")
-        unity_box.label(text="Retargets the selected animation onto your Unity player skeleton.")
+        unity_box.label(text="Exports the evaluated seven-bone R6 rig. For R6IK, select InternalArmature as Target.")
         if settings:
-            unity_box.prop(settings, "rbx_unity_template_armature", text="Skeleton Template")
+            unity_box.prop(settings, "rbx_unity_template_armature", text="Rest-Pose Template (optional)")
         unity_box.operator(
             "object.rbxanims_export_unity_fbx",
             text="Export for Unity (.fbx)",
