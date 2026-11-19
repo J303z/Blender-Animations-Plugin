@@ -11,7 +11,6 @@ import os
 import bpy
 from bpy.types import Operator
 from bpy.props import StringProperty, BoolProperty
-from mathutils import Matrix
 from bpy_extras.io_utils import ExportHelper
 
 
@@ -231,7 +230,7 @@ def _sample_evaluated_motion(context, armature, scene):
 
 
 def _build_unity_export_armature(
-    context, source_armature, template_armature, apply_limb_unity_z180=False
+    context, source_armature, template_armature, apply_limb_rest_axis_conversion=False
 ):
     """Bake evaluated source motion onto a duplicate of the Unity template.
 
@@ -329,7 +328,7 @@ def _build_unity_export_armature(
                 # This is calculated independently for each bone, so Head,
                 # both arms and both legs can have different rest-axis offsets.
                 # HumanoidRootPart and Torso deliberately bypass this correction.
-                if apply_limb_unity_z180 and bone.name not in {
+                if apply_limb_rest_axis_conversion and bone.name not in {
                     "HumanoidRootPart", "Torso"
                 }:
                     source_to_target_basis = (
@@ -414,7 +413,7 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
     bl_options = {"REGISTER"}
 
     filename_ext = ".fbx"
-    apply_limb_unity_z180: BoolProperty(
+    apply_limb_rest_axis_conversion: BoolProperty(
         name="Convert limb animation into Unity rest axes",
         description=(
             "Re-express Head, both arms and both legs using their individual "
@@ -541,7 +540,7 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             # remain untouched, even when source and template are the same object.
             export_armature = _build_unity_export_armature(
                 context, armature, template_armature,
-                apply_limb_unity_z180=self.apply_limb_unity_z180,
+                apply_limb_rest_axis_conversion=self.apply_limb_rest_axis_conversion,
             )
 
             bpy.ops.object.select_all(action="DESELECT")
