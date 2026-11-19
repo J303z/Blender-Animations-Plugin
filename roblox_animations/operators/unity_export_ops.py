@@ -11,6 +11,7 @@ import os
 import bpy
 from bpy.types import Operator
 from bpy.props import StringProperty, BoolProperty
+from mathutils import Matrix
 from bpy_extras.io_utils import ExportHelper
 
 
@@ -230,7 +231,11 @@ def _sample_evaluated_motion(context, armature, scene):
 
 
 def _build_unity_export_armature(
-    context, source_armature, template_armature, apply_limb_rest_axis_conversion=False
+    context,
+    source_armature,
+    template_armature,
+    apply_limb_rest_axis_conversion=False,
+    apply_limb_180_facing_correction=False,
 ):
     """Bake evaluated source motion onto a duplicate of the Unity template.
 
@@ -342,7 +347,29 @@ def _build_unity_export_armature(
                 else:
                     target_rest_delta = source_rest_delta
 
-                target_pose_world = target_rest_world @ target_rest_delta
+                # Optional reversible 180-degree facing correction.
+                # Blender-local Y maps to the tested Unity-local Z axis for
+                # this FBX export convention (-Z forward, Y up). Apply the
+                # correction between the destination rest frame and the
+                # animation delta: this changes the bone's facing AND rotates
+                # its local animation translation/rotation axes consistently.
+                # The joint position is preserved because this is a local
+                # rotation about the bone origin. Root and torso are excluded.
+                if (
+                    apply_limb_180_facing_correction
+                    and bone.name not in {"HumanoidRootPart", "Torso"}
+                ):
+                    limb_facing_correction = Matrix.Rotation(
+                        3.141592653589793, 4, "Y"
+                    )
+                else:
+                    limb_facing_correction = Matrix.Identity(4)
+
+                target_pose_world = (
+                    target_rest_world
+                    @ limb_facing_correction
+                    @ target_rest_delta
+                )
                 target_pose_armature = (
                     target_object_world_inverse @ target_pose_world
                 )
@@ -419,6 +446,15 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             "Re-express Head, both arms and both legs using their individual "
             "source-to-template rest-axis conversions; disable to use the "
             "unconverted source deltas. HumanoidRootPart and Torso are unchanged."
+        ),
+        default=True,
+    )
+    apply_limb_180_facing_correction: BoolProperty(
+        name="Rotate limbs 180° and correct animation direction",
+        description=(
+            "Apply a reversible 180-degree local-Z facing correction to Head, "
+            "both arms and both legs, including their animation axes. "
+            "HumanoidRootPart and Torso are never modified."
         ),
         default=True,
     )
@@ -541,6 +577,7 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             export_armature = _build_unity_export_armature(
                 context, armature, template_armature,
                 apply_limb_rest_axis_conversion=self.apply_limb_rest_axis_conversion,
+                apply_limb_180_facing_correction=self.apply_limb_180_facing_correction,
             )
 
             bpy.ops.object.select_all(action="DESELECT")
