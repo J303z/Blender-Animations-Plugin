@@ -21,13 +21,15 @@ _R6_BONE_NAMES = {
 }
 
 _R6_EXPECTED_PARENTS = {
+    # Custom R6 hierarchy: the torso bends independently while the
+    # legs remain rooted to HumanoidRootPart and do not follow torso pitch.
     "HumanoidRootPart": None,
     "Torso": "HumanoidRootPart",
     "Head": "Torso",
     "Left Arm": "Torso",
     "Right Arm": "Torso",
-    "Left Leg": "Torso",
-    "Right Leg": "Torso",
+    "Left Leg": "HumanoidRootPart",
+    "Right Leg": "HumanoidRootPart",
 }
 
 
@@ -340,11 +342,11 @@ def _build_unity_export_armature(context, source_armature, template_armature):
         if duplicate.animation_data is None or duplicate.animation_data.action is None:
             raise RuntimeError("The temporary Unity armature received no animation action.")
 
-        # Confirm that the duplicate retained the user's R6 hierarchy.
-        if duplicate.data.bones["Left Leg"].parent.name != "Torso":
-            raise RuntimeError("Left Leg is not parented to Torso in the export rig.")
-        if duplicate.data.bones["Right Leg"].parent.name != "Torso":
-            raise RuntimeError("Right Leg is not parented to Torso in the export rig.")
+        # Confirm that the temporary skeleton retained the user's exact
+        # custom R6 hierarchy, including legs parented to HumanoidRootPart.
+        _validate_r6_armature(
+            duplicate, "Temporary Unity export armature"
+        )
 
         return duplicate
     except Exception:
