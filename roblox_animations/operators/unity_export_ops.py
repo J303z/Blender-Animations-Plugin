@@ -315,12 +315,48 @@ def _build_unity_export_armature(
                     @ duplicate.data.bones[bone.name].matrix_local
                 )
 
-                # Transfer the source bone's rest-relative motion onto the
-                # matching destination rest bone, independent of parent trees.
-                source_rest_delta = (
-                    source_rest_world.inverted_safe() @ source_pose_world
+                # Transfer rotation and translation separately in world space.
+                # Rotation is measured relative to the source rest orientation,
+                # then applied to the destination rest orientation. Translation
+                # preserves the destination rest joint position and adds the
+                # source joint's world-space displacement. This avoids rotating
+                # source movement through a mismatched source/target rest basis.
+                source_rest_rotation = (
+                    source_rest_world.to_3x3()
+                    .normalized()
+                    .to_quaternion()
                 )
-                target_pose_world = target_rest_world @ source_rest_delta
+                source_pose_rotation = (
+                    source_pose_world.to_3x3()
+                    .normalized()
+                    .to_quaternion()
+                )
+                source_rotation_delta = (
+                    source_pose_rotation @ source_rest_rotation.inverted()
+                )
+
+                target_rest_rotation = (
+                    target_rest_world.to_3x3()
+                    .normalized()
+                    .to_quaternion()
+                )
+                target_pose_rotation = (
+                    source_rotation_delta @ target_rest_rotation
+                )
+
+                source_world_displacement = (
+                    source_pose_world.translation
+                    - source_rest_world.translation
+                )
+                target_world_location = (
+                    target_rest_world.translation
+                    + source_world_displacement
+                )
+
+                target_pose_world = (
+                    Matrix.Translation(target_world_location)
+                    @ target_pose_rotation.to_matrix().to_4x4()
+                )
                 target_pose_armature = (
                     target_object_world_inverse @ target_pose_world
                 )
@@ -410,7 +446,7 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             "Test a 180-degree Unity-local Z orientation correction on Head, "
             "both arms and both legs; disable to revert to the original orientation"
         ),
-        default=True,
+        default=False,
     )
     filter_glob: StringProperty(
         default="*.fbx",
