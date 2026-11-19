@@ -231,7 +231,8 @@ def _sample_evaluated_motion(context, armature, scene):
 
 
 def _build_unity_export_armature(
-    context, source_armature, template_armature, apply_limb_unity_z180=False
+    context, source_armature, template_armature,
+    apply_limb_unity_z180=False, apply_character_facing_180=True
 ):
     """Bake evaluated source motion onto a duplicate of the Unity template.
 
@@ -295,6 +296,38 @@ def _build_unity_export_armature(
             evaluated_source = source_armature.evaluated_get(depsgraph)
             source_object_world = evaluated_source.matrix_world.copy()
 
+            # Optional whole-character facing correction. Rotate every baked
+            # bone transform as one rigid body around the animated root joint.
+            # This changes neither source animation nor the template/rest rig.
+            facing_correction = Matrix.Identity(4)
+            if apply_character_facing_180:
+                root_name = "HumanoidRootPart"
+                source_root_rest_world = (
+                    source_object_world
+                    @ source_armature.data.bones[root_name].matrix_local
+                )
+                source_root_pose_world = (
+                    source_object_world
+                    @ evaluated_source.pose.bones[root_name].matrix
+                )
+                target_root_rest_world = (
+                    template_armature.matrix_world
+                    @ duplicate.data.bones[root_name].matrix_local
+                )
+                root_world_displacement = (
+                    source_root_pose_world.translation
+                    - source_root_rest_world.translation
+                )
+                root_world_pivot = (
+                    target_root_rest_world.translation
+                    + root_world_displacement
+                )
+                facing_correction = (
+                    Matrix.Translation(root_world_pivot)
+                    @ Matrix.Rotation(3.141592653589793, 4, "Z")
+                    @ Matrix.Translation(-root_world_pivot)
+                )
+
             for bone in ordered_bones:
                 source_pose_bone = evaluated_source.pose.bones.get(bone.name)
                 target_pose_bone = duplicate.pose.bones.get(bone.name)
@@ -357,6 +390,8 @@ def _build_unity_export_armature(
                     Matrix.Translation(target_world_location)
                     @ target_pose_rotation.to_matrix().to_4x4()
                 )
+                if apply_character_facing_180:
+                    target_pose_world = facing_correction @ target_pose_world
                 target_pose_armature = (
                     target_object_world_inverse @ target_pose_world
                 )
@@ -440,6 +475,15 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
     bl_options = {"REGISTER"}
 
     filename_ext = ".fbx"
+    apply_character_facing_180: BoolProperty(
+        name="Rotate whole character 180° to face forward",
+        description=(
+            "Apply a reversible 180-degree rotation around the animated "
+            "HumanoidRootPart on Blender Z (Unity Y); disable to restore "
+            "the original facing direction"
+        ),
+        default=True,
+    )
     apply_limb_unity_z180: BoolProperty(
         name="Apply 180° Unity Z correction to limbs",
         description=(
@@ -567,6 +611,7 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             export_armature = _build_unity_export_armature(
                 context, armature, template_armature,
                 apply_limb_unity_z180=self.apply_limb_unity_z180,
+                apply_character_facing_180=self.apply_character_facing_180,
             )
 
             bpy.ops.object.select_all(action="DESELECT")
