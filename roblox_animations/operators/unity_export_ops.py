@@ -347,28 +347,30 @@ def _build_unity_export_armature(
                 else:
                     target_rest_delta = source_rest_delta
 
-                # Optional reversible 180-degree facing correction.
+                # Optional reversible 180-degree orientation-only correction.
                 # Blender-local Y maps to the tested Unity-local Z axis for
-                # this FBX export convention (-Z forward, Y up). Apply the
-                # correction between the destination rest frame and the
-                # animation delta: this changes the bone's facing AND rotates
-                # its local animation translation/rotation axes consistently.
-                # The joint position is preserved because this is a local
-                # rotation about the bone origin. Root and torso are excluded.
+                # this FBX export convention (-Z forward, Y up).
+                #
+                # IMPORTANT: post-multiply the correction AFTER the complete
+                # animated delta. For an affine transform [R, t], right-
+                # multiplying by a pure rotation [C, 0] produces [R*C, t]:
+                # the joint translation and sampled animation movement remain
+                # unchanged, while the bone's local orientation is corrected.
+                # Root and torso are explicitly excluded.
                 if (
                     apply_limb_180_facing_correction
                     and bone.name not in {"HumanoidRootPart", "Torso"}
                 ):
-                    limb_facing_correction = Matrix.Rotation(
+                    limb_orientation_correction = Matrix.Rotation(
                         3.141592653589793, 4, "Y"
                     )
                 else:
-                    limb_facing_correction = Matrix.Identity(4)
+                    limb_orientation_correction = Matrix.Identity(4)
 
                 target_pose_world = (
                     target_rest_world
-                    @ limb_facing_correction
                     @ target_rest_delta
+                    @ limb_orientation_correction
                 )
                 target_pose_armature = (
                     target_object_world_inverse @ target_pose_world
@@ -450,10 +452,11 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
         default=True,
     )
     apply_limb_180_facing_correction: BoolProperty(
-        name="Rotate limbs 180° and correct animation direction",
+        name="Apply 180° limb orientation correction (preserve movement)",
         description=(
-            "Apply a reversible 180-degree local-Z facing correction to Head, "
-            "both arms and both legs, including their animation axes. "
+            "Apply a reversible 180-degree local-Z orientation correction to "
+            "Head, both arms and both legs AFTER animation is evaluated. "
+            "Preserves sampled joint translations and animation movement. "
             "HumanoidRootPart and Torso are never modified."
         ),
         default=True,
