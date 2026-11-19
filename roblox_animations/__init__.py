@@ -98,7 +98,7 @@ bl_info = {
     "name": "Blender Animation Bridge",
     "description": "Blender animation tools for Roblox workflows and Unity FBX export.",
     "author": "Cautioned",
-    "version": (3, 2, 1),
+    "version": (3, 2, 2),
     "blender": (2, 80, 0),
     "location": "View3D > Toolbar",
 }
