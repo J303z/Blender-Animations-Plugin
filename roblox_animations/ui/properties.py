@@ -199,6 +199,15 @@ class RobloxAnimationSettings(PropertyGroup):
         description="Select an armature",
     )
 
+    rbx_unity_template_armature: EnumProperty(
+        items=armature_items,
+        name="Unity Skeleton Template",
+        description=(
+            "Choose the custom player armature whose rest pose and bone axes "
+            "should be used for the exported Unity animation skeleton."
+        ),
+    )
+
     rbx_server_port: IntProperty(
         name="Server Port",
         description="Port for the animation server",
