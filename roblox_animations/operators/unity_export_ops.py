@@ -303,24 +303,90 @@ def _build_unity_export_armature(
                         f"Could not sample evaluated bone '{bone.name}'."
                     )
 
+                source_bone_data = source_armature.data.bones[bone.name]
+                target_bone_data = duplicate.data.bones[bone.name]
+
                 source_rest_world = (
-                    source_object_world
-                    @ source_armature.data.bones[bone.name].matrix_local
+                    source_object_world @ source_bone_data.matrix_local
                 )
                 source_pose_world = (
                     source_object_world @ source_pose_bone.matrix
                 )
                 target_rest_world = (
-                    template_armature.matrix_world
-                    @ duplicate.data.bones[bone.name].matrix_local
+                    template_armature.matrix_world @ target_bone_data.matrix_local
                 )
 
-                # Transfer the source bone's rest-relative motion onto the
-                # matching destination rest bone, independent of parent trees.
-                source_rest_delta = (
-                    source_rest_world.inverted_safe() @ source_pose_world
+                # Transfer animation relative to each bone's PARENT, not
+                # relative to world space. A world-space delta includes parent
+                # motion; applying that delta to a child independently can make
+                # its movement oppose the torso or root.
+                #
+                # First extract the source bone's local animated delta:
+                #   source_local_rest = inverse(source_parent_rest) * bone_rest
+                #   source_local_pose = inverse(source_parent_pose) * bone_pose
+                #   local_delta = inverse(source_local_rest) * source_local_pose
+                source_parent_data = source_bone_data.parent
+                if source_parent_data is None:
+                    source_parent_rest_world = source_object_world
+                    source_parent_pose_world = source_object_world
+                else:
+                    source_parent_pose_bone = evaluated_source.pose.bones.get(
+                        source_parent_data.name
+                    )
+                    if source_parent_pose_bone is None:
+                        raise RuntimeError(
+                            f"Could not sample source parent "
+                            f"'{source_parent_data.name}' for '{bone.name}'."
+                        )
+                    source_parent_rest_world = (
+                        source_object_world @ source_parent_data.matrix_local
+                    )
+                    source_parent_pose_world = (
+                        source_object_world @ source_parent_pose_bone.matrix
+                    )
+
+                source_local_rest = (
+                    source_parent_rest_world.inverted_safe() @ source_rest_world
                 )
-                target_pose_world = target_rest_world @ source_rest_delta
+                source_local_pose = (
+                    source_parent_pose_world.inverted_safe() @ source_pose_world
+                )
+                source_local_delta = (
+                    source_local_rest.inverted_safe() @ source_local_pose
+                )
+
+                # Apply that parent-relative delta to the destination bone's
+                # own rest transform, under the destination parent's CURRENT
+                # evaluated pose. Parents are processed first by _bone_depth().
+                target_parent_data = target_bone_data.parent
+                if target_parent_data is None:
+                    target_parent_rest_world = template_armature.matrix_world
+                    target_parent_pose_world = duplicate.matrix_world
+                else:
+                    target_parent_pose_bone = duplicate.pose.bones.get(
+                        target_parent_data.name
+                    )
+                    if target_parent_pose_bone is None:
+                        raise RuntimeError(
+                            f"Could not evaluate destination parent "
+                            f"'{target_parent_data.name}' for '{bone.name}'."
+                        )
+                    target_parent_rest_world = (
+                        template_armature.matrix_world
+                        @ target_parent_data.matrix_local
+                    )
+                    target_parent_pose_world = (
+                        duplicate.matrix_world @ target_parent_pose_bone.matrix
+                    )
+
+                target_local_rest = (
+                    target_parent_rest_world.inverted_safe() @ target_rest_world
+                )
+                target_pose_world = (
+                    target_parent_pose_world
+                    @ target_local_rest
+                    @ source_local_delta
+                )
                 target_pose_armature = (
                     target_object_world_inverse @ target_pose_world
                 )
