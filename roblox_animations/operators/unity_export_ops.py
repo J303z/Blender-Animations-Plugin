@@ -9,7 +9,6 @@ for evaluation and is not included in the exported hierarchy.
 
 import os
 import bpy
-from mathutils import Matrix
 from bpy.types import Operator
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ExportHelper
@@ -240,7 +239,6 @@ def _build_unity_export_armature(context, source_armature, template_armature):
     The source/control rig is never modified. The temporary destination has no
     constraints; it receives only baked animation keys.
     """
-    scene = context.scene
     # The source is the evaluated seven-bone deform/export rig. In an
     # R6IK scene this is normally InternalArmature, driven by __PrimaryArmature.
     # The template may be the same object; the exporter always bakes to a
@@ -340,8 +338,7 @@ def _build_unity_export_armature(context, source_armature, template_armature):
         if duplicate.animation_data is None or duplicate.animation_data.action is None:
             raise RuntimeError("The temporary Unity armature received no animation action.")
 
-        if duplicate.animation_data.action is not None:
-            duplicate.animation_data.action.name = "ECHO_Unity_Baked"
+        duplicate.animation_data.action.name = "ECHO_Unity_Baked"
 
         # Verify that the keyed destination actually moves before exporting.
         baked_motion, baked_details = _sample_evaluated_motion(
