@@ -15,7 +15,7 @@ The project preserves the original Roblox animation workflow and adds a separate
 
 ### Unity workflow
 - Export the target armature as an animation-only FBX.
-- Let Blender's FBX exporter sample the evaluated armature pose, including dependency-graph evaluation of constraints.
+- Sample the evaluated seven-bone armature pose from the dependency graph, including motion driven by a separate R6IK control rig, then bake it onto the Unity destination skeleton.
 - Export all armature bones, including non-deform bones.
 - Keep the source rig, constraints, and actions unchanged.
 - Use one-frame sampling with animation simplification disabled to avoid intentionally dropping motion.
@@ -37,7 +37,7 @@ The project preserves the original Roblox animation workflow and adds a separate
 - Separate rigid body-part meshes may be bone-parented to their matching bones; vertex groups and Armature modifiers are not required for that setup. This animation-only exporter writes the armature and animation, not those model meshes.
 - The target armature must evaluate correctly in Blender before export. Driver rigs and constraint targets must remain available in the scene so Blender can evaluate the dependency graph; only the target armature is selected for FBX export.
 - The target armature may live in a hidden internal collection. During export, the add-on temporarily reveals only the target's collection path and object in the active view layer, then restores their original viewport visibility even if export fails. Render visibility is left unchanged.
-- The exporter deliberately uses Blender's global scene animation bake (NLA-strip export off and all-actions export off). Blender samples the selected armature's evaluated pose over the scene frame range, so a separate control rig can drive it through constraints without being included in the FBX. This avoids destructive manual constraint clearing or baking on the original rig.
+- The exporter samples the evaluated source pose over the scene frame range, transfers each bone's rest-relative motion in world space to the matching Unity rest bone, and keys a temporary destination armature. A separate control rig can therefore drive `InternalArmature` without being included in the FBX or having its original Action changed. The exporter verifies that both the source and temporary destination actually move before writing the FBX.
 - The initial implementation is designed around Blender's built-in FBX exporter. Unity import settings, root motion, bone orientation, and rest-pose compatibility still need validation against real rigs.
 - For the best result, the Unity character and animation FBXs should share a compatible skeleton hierarchy, root bone, rest pose, and bone names.
 - If the exported animation looks exaggerated or offset in Unity, check the armature's rest pose, object transforms, FBX axis settings, and Unity's Generic rig mapping before changing animation curves.
