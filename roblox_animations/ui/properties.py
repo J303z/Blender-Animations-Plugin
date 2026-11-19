@@ -207,9 +207,10 @@ class RobloxAnimationSettings(PropertyGroup):
         items=armature_items,
         name="Unity Skeleton Template",
         description=(
-            "Optional. Choose a separate seven-bone R6 armature to retarget onto. "
-            "Leave unset to use the Target armature itself and preserve its rest pose. "
-            "The template must use the same seven bone names and hierarchy."
+            "Choose the seven-bone destination skeleton for Unity. It must use "
+            "the custom Unity hierarchy. The evaluated source may use a different "
+            "parent structure; leave unset only if the source already uses the "
+            "custom Unity hierarchy."
         ),
     )
 
