@@ -195,24 +195,27 @@ def _build_unity_export_armature(context, source_armature, template_armature):
             "Torso, Head, Left Arm, Right Arm, Left Leg, and Right Leg."
         )
 
-    template_bones = template_armature.data.bones
+    # Preserve the classic R6 hierarchy shown by the user's InternalArmature:
+    # HRP -> Torso -> Head, arms, and legs. Both rigs must use this hierarchy
+    # so each bone's rest-relative animation has an unambiguous parent space.
     expected_parents = {
         "HumanoidRootPart": None,
         "Torso": "HumanoidRootPart",
         "Head": "Torso",
         "Left Arm": "Torso",
         "Right Arm": "Torso",
-        "Left Leg": "HumanoidRootPart",
-        "Right Leg": "HumanoidRootPart",
+        "Left Leg": "Torso",
+        "Right Leg": "Torso",
     }
-    for bone_name, parent_name in expected_parents.items():
-        actual_parent = template_bones[bone_name].parent
-        actual_parent_name = actual_parent.name if actual_parent else None
-        if actual_parent_name != parent_name:
-            raise RuntimeError(
-                f"Unity template hierarchy mismatch for '{bone_name}': "
-                f"expected parent '{parent_name}', got '{actual_parent_name}'."
-            )
+    for rig_label, rig in (("Source", source_armature), ("Unity template", template_armature)):
+        for bone_name, parent_name in expected_parents.items():
+            actual_parent = rig.data.bones[bone_name].parent
+            actual_parent_name = actual_parent.name if actual_parent else None
+            if actual_parent_name != parent_name:
+                raise RuntimeError(
+                    f"{rig_label} hierarchy mismatch for '{bone_name}': "
+                    f"expected parent '{parent_name}', got '{actual_parent_name}'."
+                )
 
     scene = context.scene
     source_frame = scene.frame_current
@@ -225,22 +228,14 @@ def _build_unity_export_armature(context, source_armature, template_armature):
     scene.collection.objects.link(duplicate)
 
     try:
-        # Make the duplicate active so Blender can edit its bone hierarchy.
+        # Keep the template hierarchy and bone rest axes exactly as authored.
+        # The duplicate is the only object modified; the source/template rig
+        # remains untouched, including when both settings reference one object.
         bpy.ops.object.select_all(action="DESELECT")
         duplicate.hide_viewport = False
         duplicate.hide_set(False)
         duplicate.select_set(True)
         context.view_layer.objects.active = duplicate
-        bpy.ops.object.mode_set(mode="EDIT")
-
-        edit_bones = duplicate.data.edit_bones
-        root = edit_bones["HumanoidRootPart"]
-        edit_bones["Left Leg"].parent = root
-        edit_bones["Right Leg"].parent = root
-        edit_bones["Left Leg"].use_connect = False
-        edit_bones["Right Leg"].use_connect = False
-
-        bpy.ops.object.mode_set(mode="OBJECT")
 
         # The duplicate must contain no constraints: its motion is baked below.
         for pose_bone in duplicate.pose.bones:
@@ -248,8 +243,15 @@ def _build_unity_export_armature(context, source_armature, template_armature):
                 pose_bone.constraints.remove(constraint)
             pose_bone.rotation_mode = "QUATERNION"
 
-        # Key every frame. Assigning armature-space matrices preserves the
-        # evaluated world-in-armature pose despite the changed parent links.
+        # Convert source armature-space matrices into the duplicate's space.
+        # This is identity when source and template are the same object.
+        source_to_target = (
+            duplicate.matrix_world.inverted_safe() @ source_armature.matrix_world
+        )
+
+        # Key every frame using rest-relative bone-local deltas. Applying the
+        # delta on the right of the target rest matrix preserves target bone
+        # roll/local axes instead of rotating the limbs around armature space.
         for frame in range(int(scene.frame_start), int(scene.frame_end) + 1):
             scene.frame_set(frame)
             context.view_layer.update()
@@ -268,9 +270,16 @@ def _build_unity_export_armature(context, source_armature, template_armature):
                         f"Could not sample evaluated bone '{bone.name}'."
                     )
                 source_rest = source_armature.data.bones[bone.name].matrix_local
+                source_rest_in_target = source_to_target @ source_rest
+                source_pose_in_target = source_to_target @ source_pose_bone.matrix
                 target_rest = duplicate.data.bones[bone.name].matrix_local
-                pose_delta = source_pose_bone.matrix @ source_rest.inverted_safe()
-                target_pose_bone.matrix = pose_delta @ target_rest
+
+                # Extract the animation in the source bone's rest-local frame,
+                # then apply it in the target bone's rest-local frame.
+                local_pose_delta = (
+                    source_rest_in_target.inverted_safe() @ source_pose_in_target
+                )
+                target_pose_bone.matrix = target_rest @ local_pose_delta
                 target_pose_bone.keyframe_insert(
                     data_path="location", frame=frame, group=bone.name
                 )
@@ -285,11 +294,11 @@ def _build_unity_export_armature(context, source_armature, template_armature):
         if duplicate.animation_data is None or duplicate.animation_data.action is None:
             raise RuntimeError("The temporary Unity armature received no animation action.")
 
-        # Confirm the output parent relationships before allowing export.
-        if duplicate.data.bones["Left Leg"].parent.name != "HumanoidRootPart":
-            raise RuntimeError("Left Leg was not reparented to HumanoidRootPart.")
-        if duplicate.data.bones["Right Leg"].parent.name != "HumanoidRootPart":
-            raise RuntimeError("Right Leg was not reparented to HumanoidRootPart.")
+        # Confirm that the duplicate retained the user's R6 hierarchy.
+        if duplicate.data.bones["Left Leg"].parent.name != "Torso":
+            raise RuntimeError("Left Leg is not parented to Torso in the export rig.")
+        if duplicate.data.bones["Right Leg"].parent.name != "Torso":
+            raise RuntimeError("Right Leg is not parented to Torso in the export rig.")
 
         return duplicate
     except Exception:
@@ -358,12 +367,8 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
                 "Choose your custom player armature in Unity Skeleton Template.",
             )
             return {"CANCELLED"}
-        if template_armature == armature:
-            self.report(
-                {"ERROR"},
-                "Source armature and Unity skeleton template must be different objects.",
-            )
-            return {"CANCELLED"}
+        # Source and template may intentionally be the same armature. The
+        # bake always runs on a temporary duplicate, leaving the original safe.
 
         if not self.filepath:
             self.report({"ERROR"}, "Choose an FBX output path.")
@@ -429,9 +434,9 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             if previous_active and previous_active.mode != "OBJECT":
                 bpy.ops.object.mode_set(mode="OBJECT")
 
-            # Build a temporary baked skeleton matching the custom Unity R6:
-            # legs are children of HumanoidRootPart, not Torso. The original
-            # hidden InternalArmature and its constraints remain untouched.
+            # Build a temporary baked skeleton using the selected template's
+            # R6 hierarchy and rest axes. The original armature and constraints
+            # remain untouched, even when source and template are the same object.
             export_armature = _build_unity_export_armature(
                 context, armature, template_armature
             )
