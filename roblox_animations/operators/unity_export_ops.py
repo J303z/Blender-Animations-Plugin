@@ -231,7 +231,7 @@ def _sample_evaluated_motion(context, armature, scene):
 
 
 def _build_unity_export_armature(
-    context, source_armature, template_armature, apply_limb_unity_z180=False
+    context, source_armature, template_armature, apply_limb_z180=False
 ):
     """Bake evaluated source motion onto a duplicate of the Unity template.
 
@@ -327,14 +327,14 @@ def _build_unity_export_armature(
 
                 # Optional, reversible orientation test: rotate every R6 bone
                 # except HumanoidRootPart and Torso by 180 degrees around its
-                # own axis corresponding to Unity Z (Blender local Y). Post-multiplication changes the
+                # own its own local Blender Z axis. Post-multiplication changes the
                 # bone orientation without changing its joint position.
-                if apply_limb_unity_z180 and bone.name not in {
+                if apply_limb_z180 and bone.name not in {
                     "HumanoidRootPart", "Torso"
                 }:
                     target_pose_armature = (
                         target_pose_armature
-                        @ Matrix.Rotation(3.141592653589793, 4, "Y")
+                        @ Matrix.Rotation(3.141592653589793, 4, "Z")
                     )
 
                 target_pose_bone.matrix = target_pose_armature
@@ -403,10 +403,10 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
     bl_options = {"REGISTER"}
 
     filename_ext = ".fbx"
-    apply_limb_unity_z180: BoolProperty(
-        name="Apply 180° Unity Z correction to limbs",
+    apply_limb_z180: BoolProperty(
+        name="Apply 180° local Z correction to limbs",
         description=(
-            "Test a 180-degree orientation correction around Unity Z (Blender local Y) on Head, "
+            "Test a 180-degree local Blender Z orientation correction on Head, "
             "both arms and both legs; disable to revert to the original orientation"
         ),
         default=True,
@@ -529,7 +529,7 @@ class OBJECT_OT_ExportUnityFBX(Operator, ExportHelper):
             # remain untouched, even when source and template are the same object.
             export_armature = _build_unity_export_armature(
                 context, armature, template_armature,
-                apply_limb_unity_z180=self.apply_limb_unity_z180,
+                apply_limb_z180=self.apply_limb_z180,
             )
 
             bpy.ops.object.select_all(action="DESELECT")
