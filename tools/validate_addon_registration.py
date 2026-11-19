@@ -24,6 +24,56 @@ required_fbx_properties = {
 }
 missing_fbx_properties = required_fbx_properties - fbx_properties
 assert not missing_fbx_properties, f'Missing FBX exporter properties: {sorted(missing_fbx_properties)}'
+
+# Regression test: a target inside a hidden collection must be temporarily
+# revealable for export, then have every original visibility flag restored.
+from roblox_animations.operators.unity_export_ops import (
+    _temporarily_reveal_armature,
+    _restore_armature_visibility,
+)
+
+test_collection = bpy.data.collections.new("__UnityExportVisibilityTest")
+bpy.context.scene.collection.children.link(test_collection)
+test_armature_data = bpy.data.armatures.new("__UnityExportVisibilityTest")
+test_armature = bpy.data.objects.new(
+    "__UnityExportVisibilityTest", test_armature_data
+)
+test_collection.objects.link(test_armature)
+test_collection.hide_viewport = True
+test_collection.hide_render = True
+test_armature.hide_set(True, view_layer=bpy.context.view_layer)
+bpy.context.view_layer.update()
+
+visibility_state = None
+try:
+    assert bpy.context.view_layer.objects.get(test_armature.name) is not None
+    assert not test_armature.visible_get(view_layer=bpy.context.view_layer)
+
+    visibility_state = _temporarily_reveal_armature(
+        test_armature, bpy.context.view_layer
+    )
+    assert test_armature.visible_get(view_layer=bpy.context.view_layer)
+    assert not test_collection.hide_viewport
+    assert test_collection.hide_render
+
+    _restore_armature_visibility(
+        test_armature, bpy.context.view_layer, visibility_state
+    )
+    visibility_state = None
+
+    assert test_collection.hide_viewport
+    assert test_collection.hide_render
+    assert test_armature.hide_get(view_layer=bpy.context.view_layer)
+    assert not test_armature.visible_get(view_layer=bpy.context.view_layer)
+    print("HIDDEN_COLLECTION_VISIBILITY_RESTORE_OK")
+finally:
+    if visibility_state is not None:
+        _restore_armature_visibility(
+            test_armature, bpy.context.view_layer, visibility_state
+        )
+    bpy.data.objects.remove(test_armature, do_unlink=True)
+    bpy.data.armatures.remove(test_armature_data)
+    bpy.data.collections.remove(test_collection, do_unlink=True)
 from roblox_animations.rig import avatar_scale
 assert callable(avatar_scale.entry_limb_scale)
 print('REGISTER_OK',len(addon.CLASSES),'classes')
