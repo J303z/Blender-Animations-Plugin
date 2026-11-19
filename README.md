@@ -23,11 +23,12 @@ The project preserves the original Roblox animation workflow and adds a separate
 ## Unity FBX export
 
 1. Open the **Animation Bridge** tab in the 3D Viewport sidebar (`N`).
-2. Set the add-on's **Target** armature to the skeleton whose animation you want to export.
+2. Set **Target R6 Rig** to the evaluated seven-bone skeleton whose motion should be exported. For the R6IK setup, choose `InternalArmature`, not the 40-bone `__PrimaryArmature` control rig.
 3. Set the scene frame range to the animation's intended start and end.
-4. Make sure the animation plays correctly in Blender and set the scene frame range to cover it. For an R6IK-style setup, the control armature (for example, `__PrimaryArmature`) can carry the action while the export target (for example, `InternalArmature`) follows through constraints. Keep both rigs in the scene; choose only the seven-bone export armature as **Target**.
-5. In the **Unity Export** section, choose **Export for Unity (.fbx)** and save the file.
-6. In Unity, import the FBX and configure its Rig as **Generic**. Use the same bone hierarchy and bone names as the character model that will play the clip.
+4. Make sure the animation plays correctly in Blender. The control armature (for example, `__PrimaryArmature`) may carry the action while `InternalArmature` follows through constraints. Keep both rigs in the scene so Blender can evaluate those constraints.
+5. The **Rest-Pose Template** is optional. Leave it unset to preserve the Target R6 Rig's own rest pose. Choose a separate template only when you intentionally want to retarget onto another seven-bone R6 skeleton with the exact same bone names and parent hierarchy. The source and template are allowed to be the same object.
+6. In the **Unity Export** section, choose **Export for Unity (.fbx)** and save the file.
+7. In Unity, import the FBX and configure its Rig as **Generic**. Use the same bone hierarchy and bone names as the character model that will play the clip.
 
 ### Important notes
 
